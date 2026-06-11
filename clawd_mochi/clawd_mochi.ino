@@ -12,7 +12,9 @@
  *     VCC → 3V3
  *     GND → GND
  *
- *   WiFi: "ClaWD-Mochi"  pw: clawd1234  → http://192.168.4.1
+ *   AP:  "ClaWD-Mochi"  pw: clawd1234  → http://192.168.4.1
+ *   STA: configure via web portal (saved to flash)
+ *   Monitor: GET http://<sta-ip>/status?s=idle|thinking|working|alert|offline
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
@@ -22,6 +24,7 @@
 #include <math.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <Preferences.h>
 
 // ── Pins ──────────────────────────────────────────────────────
 #define TFT_CS  4
@@ -35,6 +38,15 @@ Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 const char* AP_SSID = "ClaWD-Mochi";
 const char* AP_PASS = "clawd1234";
 WebServer server(80);
+Preferences prefs;
+
+bool     staConnected = false;
+String   staIP        = "";
+String   savedSSID    = "";
+String   savedPASS    = "";
+
+#define STA_CONNECT_TIMEOUT_MS 10000
+#define STATUS_TIMEOUT_MS      30000
 
 // ── Display ───────────────────────────────────────────────────
 #define DISP_W 240
@@ -57,8 +69,18 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 #define VIEW_EYES_SQUISH 1
 #define VIEW_CODE        2
 #define VIEW_DRAW        3
+#define VIEW_MONITOR     4
 
-uint8_t  currentView  = VIEW_EYES_NORMAL;
+#define MON_IDLE     0
+#define MON_THINKING 1
+#define MON_WORKING  2
+#define MON_ALERT    3
+#define MON_OFFLINE  4
+
+uint8_t  currentView   = VIEW_EYES_NORMAL;
+uint8_t  monitorState  = MON_IDLE;
+unsigned long lastStatusMs = 0;
+bool     statusTimedOut  = false;
 bool     busy         = false;
 bool     backlightOn  = true;
 uint8_t  animSpeed    = 1;   // 1=slow(default) 2=normal 3=fast
@@ -216,6 +238,75 @@ void initColours() {
   C_GREEN  = tft.color565(80, 220, 130);
   animBgColor = C_ORANGE;
   drawBgColor = C_ORANGE;
+}
+
+// ═════════════════════════════════════════════════════════════
+//  WIFI + MONITOR
+// ═════════════════════════════════════════════════════════════
+
+const char* monitorStateStr() {
+  switch (monitorState) {
+    case MON_THINKING: return "thinking";
+    case MON_WORKING:  return "working";
+    case MON_ALERT:    return "alert";
+    case MON_OFFLINE:  return "offline";
+    default:           return "idle";
+  }
+}
+
+void loadWifiCredentials() {
+  savedSSID = prefs.getString("ssid", "");
+  savedPASS = prefs.getString("pass", "");
+}
+
+void saveWifiCredentials(const String& ssid, const String& pass) {
+  prefs.putString("ssid", ssid);
+  prefs.putString("pass", pass);
+  savedSSID = ssid;
+  savedPASS = pass;
+}
+
+bool connectSTA() {
+  if (savedSSID.length() == 0) {
+    staConnected = false;
+    staIP = "";
+    return false;
+  }
+  WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
+  const unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < STA_CONNECT_TIMEOUT_MS) {
+    delay(200);
+  }
+  staConnected = (WiFi.status() == WL_CONNECTED);
+  staIP = staConnected ? WiFi.localIP().toString() : "";
+  return staConnected;
+}
+
+void drawWifiScreen() {
+  tft.fillScreen(C_DARKBG);
+  tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
+  tft.setTextColor(C_WHITE); tft.setTextSize(2);
+  tft.setCursor(12, 16);  tft.print("WiFi: ClaWD-Mochi");
+  tft.setTextColor(C_MUTED); tft.setTextSize(1);
+  tft.setCursor(12, 44);  tft.print("password: clawd1234");
+  tft.setTextColor(C_WHITE); tft.setTextSize(1);
+  tft.setCursor(12, 62);  tft.print("Controller:");
+  tft.setTextColor(C_ORANGE); tft.setTextSize(2);
+  tft.setCursor(12, 78);  tft.print("192.168.4.1");
+  tft.setTextColor(C_WHITE); tft.setTextSize(1);
+  tft.setCursor(12, 108); tft.print("Home WiFi:");
+  if (staConnected) {
+    tft.setTextColor(C_GREEN); tft.setTextSize(2);
+    tft.setCursor(12, 124); tft.print(staIP);
+    tft.setTextColor(C_MUTED); tft.setTextSize(1);
+    tft.setCursor(12, 152); tft.print("Hook: /status?s=...");
+  } else {
+    tft.setTextColor(C_MUTED); tft.setTextSize(1);
+    tft.setCursor(12, 124); tft.print("not connected");
+    tft.setCursor(12, 140); tft.print("configure in web portal");
+  }
+  tft.setTextColor(C_MUTED); tft.setTextSize(1);
+  tft.setCursor(12, 210); tft.print("press any button to start");
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -450,6 +541,72 @@ void animLogoReveal() {
   busy = false;
 }
 
+void applyMonitorState(const String& s) {
+  if (s == "idle")           monitorState = MON_IDLE;
+  else if (s == "thinking")  monitorState = MON_THINKING;
+  else if (s == "working")   monitorState = MON_WORKING;
+  else if (s == "alert")     monitorState = MON_ALERT;
+  else if (s == "offline")   monitorState = MON_OFFLINE;
+  else return;
+
+  lastStatusMs = millis();
+  statusTimedOut = false;
+
+  if (currentView == VIEW_DRAW) return;
+  if (currentView == VIEW_CODE && termMode) return;
+
+  currentView = VIEW_MONITOR;
+  termMode = false;
+
+  switch (monitorState) {
+    case MON_IDLE:
+      if (!backlightOn) setBacklight(true);
+      drawNormalEyes();
+      break;
+    case MON_THINKING:
+      if (!backlightOn) setBacklight(true);
+      drawSquishEyes(false);
+      break;
+    case MON_WORKING:
+      if (!backlightOn) setBacklight(true);
+      drawCodeView();
+      break;
+    case MON_ALERT:
+      if (!backlightOn) setBacklight(true);
+      animLogoReveal();
+      break;
+    case MON_OFFLINE:
+      drawNormalEyes();
+      setBacklight(false);
+      break;
+  }
+}
+
+void enterMonitorView() {
+  currentView = VIEW_MONITOR;
+  termMode = false;
+  statusTimedOut = false;
+  switch (monitorState) {
+    case MON_THINKING: drawSquishEyes(false); break;
+    case MON_WORKING:  drawCodeView(); break;
+    case MON_OFFLINE:  drawNormalEyes(); break;
+    default:           drawNormalEyes(); break;
+  }
+}
+
+void checkStatusTimeout() {
+  if (currentView != VIEW_MONITOR) return;
+  if (lastStatusMs == 0) return;
+  if (monitorState == MON_IDLE || monitorState == MON_OFFLINE) return;
+  if (millis() - lastStatusMs < STATUS_TIMEOUT_MS) return;
+  if (statusTimedOut) return;
+
+  statusTimedOut = true;
+  monitorState = MON_IDLE;
+  if (!backlightOn) setBacklight(true);
+  drawNormalEyes();
+}
+
 // ═════════════════════════════════════════════════════════════
 //  WEB PAGE
 // ═════════════════════════════════════════════════════════════
@@ -493,20 +650,21 @@ body{background:#1c1c20;font-family:'Courier New',monospace;color:#e8e4dc;
 .cbtn.dim{border-color:#2e2a28;color:#4a4540}
 
 /* View grid */
-.vgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;width:100%;max-width:390px}
+.vgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;max-width:390px}
 .vbtn{background:#252428;border:1.5px solid #38343a;border-radius:12px;
   color:#d8d4cc;font-family:'Courier New',monospace;
-  padding:14px 6px 10px;cursor:pointer;text-align:center;
+  padding:12px 4px 8px;cursor:pointer;text-align:center;
   transition:all .12s;user-select:none}
 .vbtn:active:not(:disabled){transform:scale(.94)}
 .vbtn:disabled{opacity:.3;cursor:default}
-.vbtn .ic{font-size:20px;display:block;margin-bottom:4px;line-height:1;color:#c96a3e}
-.vbtn .nm{font-size:12px;font-weight:bold;color:#e8e4dc}
-.vbtn .ht{font-size:9px;color:#8a8278;margin-top:3px}
+.vbtn .ic{font-size:18px;display:block;margin-bottom:3px;line-height:1;color:#c96a3e}
+.vbtn .nm{font-size:11px;font-weight:bold;color:#e8e4dc}
+.vbtn .ht{font-size:8px;color:#8a8278;margin-top:2px}
 .vbtn.active{border-color:#c96a3e;background:#201408}
 .vbtn[data-v="1"].active{border-color:#c96a3e;background:#201408}
 .vbtn[data-v="2"].active{border-color:#4a8acd;background:#0c1628}
 .vbtn[data-v="3"].active{border-color:#38343a;background:#201c18}
+.vbtn[data-v="4"].active{border-color:#28b878;background:#0c1e12}
 
 /* Speed slider */
 .speed-row{width:100%;max-width:390px;display:flex;align-items:center;gap:10px}
@@ -549,6 +707,32 @@ input[type=range]{flex:1;accent-color:#c96a3e;cursor:pointer;height:20px}
 .db.hi{border-color:#c96a3e;color:#c96a3e}
 canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
   touch-action:none;cursor:crosshair;display:block}
+
+/* Monitor panel */
+.mwrap{width:100%;max-width:390px;background:#0c1410;border:1.5px solid #1a4828;
+  border-radius:12px;padding:12px;display:none;flex-direction:column;gap:8px}
+.mwrap.open{display:flex}
+.mrow{display:flex;justify-content:space-between;align-items:center;font-size:11px}
+.mlbl{color:#6a6058;letter-spacing:1px}
+.mval{color:#28b878;font-weight:bold}
+.mval.warn{color:#c96a3e}
+.mval.off{color:#5a5048}
+.mdot{width:8px;height:8px;border-radius:50%;background:#28b878;display:inline-block;margin-right:6px}
+.mdot.off{background:#5a5048}
+.mdot.warn{background:#c96a3e}
+
+/* WiFi config */
+.wwrap{width:100%;max-width:390px;background:#222028;border:1.5px solid #38343a;
+  border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.wfld{background:#0c1018;border:1.5px solid #1a2820;border-radius:9px;
+  color:#e8e4dc;font-family:'Courier New',monospace;font-size:13px;
+  padding:10px;outline:none;width:100%}
+.wlbl{font-size:10px;color:#8a8278;letter-spacing:1px;font-weight:bold}
+.wgo{background:#c96a3e;border:none;border-radius:9px;color:#fff;
+  font-family:'Courier New',monospace;font-size:12px;font-weight:bold;
+  padding:11px;cursor:pointer;width:100%}
+.wgo:active{background:#a04820}
+.wstat{font-size:10px;color:#6a6058;text-align:center;line-height:1.5}
 
 /* Toast */
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
@@ -594,6 +778,28 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
     <span class="nm">Canvas</span>
     <span class="ht">draw on display</span>
   </button>
+  <button class="vbtn" data-v="4" onclick="setView(4)">
+    <span class="ic">&#9679;</span>
+    <span class="nm">Monitor</span>
+    <span class="ht">Claude Code link</span>
+  </button>
+</div>
+
+<div class="mwrap" id="mwrap">
+  <div class="mrow"><span class="mlbl">MONITOR MODE</span><span class="mval" id="mState">idle</span></div>
+  <div class="mrow"><span class="mlbl">DEVICE IP</span><span class="mval" id="mIp">—</span></div>
+  <div class="mrow"><span class="mlbl">PC LINK</span><span class="mval" id="mLink"><span class="mdot off" id="mDot"></span><span id="mLinkTxt">waiting</span></span></div>
+  <div class="mrow"><span class="mlbl">LAST EVENT</span><span class="mval" id="mLast">—</span></div>
+</div>
+
+<div class="sec">// wifi setup</div>
+<div class="wwrap">
+  <span class="wlbl">HOME WIFI SSID</span>
+  <input class="wfld" id="wifiSsid" type="text" placeholder="Your WiFi name" autocomplete="off">
+  <span class="wlbl">PASSWORD</span>
+  <input class="wfld" id="wifiPass" type="password" placeholder="WiFi password">
+  <button class="wgo" onclick="saveWifi()">Save &amp; Connect</button>
+  <div class="wstat" id="wifiStat">AP always on: ClaWD-Mochi / clawd1234</div>
 </div>
 
 <div class="sec">// speed</div>
@@ -646,8 +852,10 @@ let isBusy      = false;
 let drawing     = false;
 let lastX = 0, lastY = 0;
 let tt;
+let monitorPoll = null;
 
 const spdLabels = ['','slow','normal','fast'];
+const mstateLabels = {idle:'idle',thinking:'thinking',working:'working',alert:'alert',offline:'offline'};
 
 // ── Toast ──────────────────────────────────────────────────────
 function toast(msg, ok=true) {
@@ -710,16 +918,30 @@ async function setSpeed(v) {
 // ── Views ───────────────────────────────────────────────────────
 async function setView(v) {
   if (isBusy || termOpen || canvasOpen) return;
-  if (v === 3) { toggleCanvas(); return; }  // canvas button in grid
-  const keys = ['w','s','d'];
-  if (!await req('/cmd?k=' + keys[v])) return;
+  if (v === 3) { toggleCanvas(); return; }
+  const keys = ['w','s','d','m'];
+  if (v >= 0 && v <= 2) {
+    if (!await req('/cmd?k=' + keys[v])) return;
+  } else if (v === 4) {
+    if (!await req('/cmd?k=m')) return;
+  } else return;
+
   activeView = v;
   document.querySelectorAll('.vbtn').forEach(b =>
     b.classList.toggle('active', parseInt(b.dataset.v) === v));
+  document.getElementById('mwrap').classList.toggle('open', v === 4);
+
+  if (v === 4) {
+    startMonitorPoll();
+    toast('monitor mode');
+    return;
+  }
+  stopMonitorPoll();
+
   if (v === 2) {
     termOpen = true;
     document.getElementById('twrap').classList.add('open');
-    setBusy(false);   // re-run to apply termOpen lock
+    setBusy(false);
     setBusy(false);
     document.querySelectorAll('.vbtn,.lbtn').forEach(b => b.disabled = true);
     const cvb = document.getElementById('cvBtn'); if (cvb) cvb.disabled = true;
@@ -730,6 +952,70 @@ async function setView(v) {
   setBusy(true);
   await waitNotBusy();
   setBusy(false);
+}
+
+// ── Monitor status poll ─────────────────────────────────────────
+function updateMonitorUI(j) {
+  const st = j.mstate || 'idle';
+  document.getElementById('mState').textContent = st;
+  document.getElementById('mIp').textContent = j.sta_ip || (j.sta ? 'connecting...' : 'not on home WiFi');
+  const ago = j.last_status || 0;
+  const dot = document.getElementById('mDot');
+  const linkTxt = document.getElementById('mLinkTxt');
+  const lastEl = document.getElementById('mLast');
+  if (ago > 0 && ago < 35) {
+    dot.className = 'mdot';
+    linkTxt.textContent = 'connected (' + ago + 's ago)';
+    lastEl.textContent = st + ' · ' + ago + 's ago';
+  } else if (ago >= 35) {
+    dot.className = 'mdot warn';
+    linkTxt.textContent = 'stale (' + ago + 's)';
+    lastEl.textContent = 'timeout → idle';
+  } else {
+    dot.className = 'mdot off';
+    linkTxt.textContent = 'waiting for hook';
+    lastEl.textContent = '—';
+  }
+}
+
+function startMonitorPoll() {
+  stopMonitorPoll();
+  async function poll() {
+    try {
+      const r = await fetch('/state');
+      const j = await r.json();
+      updateMonitorUI(j);
+    } catch(e) {}
+  }
+  poll();
+  monitorPoll = setInterval(poll, 2000);
+}
+
+function stopMonitorPoll() {
+  if (monitorPoll) { clearInterval(monitorPoll); monitorPoll = null; }
+}
+
+// ── WiFi config ─────────────────────────────────────────────────
+async function saveWifi() {
+  const ssid = document.getElementById('wifiSsid').value.trim();
+  const pass = document.getElementById('wifiPass').value;
+  if (!ssid) { toast('enter SSID', false); return; }
+  document.getElementById('wifiStat').textContent = 'Connecting...';
+  try {
+    const r = await fetch('/wifi/save?ssid=' + encodeURIComponent(ssid) +
+      '&pass=' + encodeURIComponent(pass));
+    const j = await r.json();
+    if (j.ok && j.sta) {
+      document.getElementById('wifiStat').textContent = 'Connected: ' + j.sta_ip;
+      toast('WiFi connected');
+    } else {
+      document.getElementById('wifiStat').textContent = 'Failed — check SSID/password';
+      toast('WiFi failed', false);
+    }
+  } catch(e) {
+    document.getElementById('wifiStat').textContent = 'Request failed';
+    toast('no connection', false);
+  }
 }
 
 // ── Logo animations (kept for startup, not exposed in UI) ──────
@@ -750,9 +1036,10 @@ async function toggleCanvas() {
   document.getElementById('cwrap').classList.toggle('open', canvasOpen);
   const b = document.getElementById('cvBtn');
   if (b) { b.classList.toggle('on', canvasOpen); b.textContent = canvasOpen ? '\u2b1b canvas on' : '\u2b1b canvas'; }
-  // highlight the canvas vbtn (data-v=3) in the grid
   document.querySelectorAll('.vbtn').forEach(btn =>
     btn.classList.toggle('active', canvasOpen && parseInt(btn.dataset.v) === 3));
+  if (canvasOpen) stopMonitorPoll();
+  document.getElementById('mwrap').classList.remove('open');
   await req('/canvas?on=' + (canvasOpen ? 1 : 0));
   if (canvasOpen) {
     const bg = document.getElementById('bgCol').value;
@@ -860,19 +1147,21 @@ async function clearAll() {
   try {
     const r = await fetch('/state');
     const j = await r.json();
-    // Sync speed
     const spd = j.speed || 1;
     document.getElementById('spd').value = spd;
     document.getElementById('spdV').textContent = spdLabels[spd];
-    // Sync backlight
     if (j.bl === false) {
       blOn = false;
       const b = document.getElementById('blBtn');
       b.textContent = '\u25cb display off';
       b.classList.remove('on'); b.classList.add('dim');
     }
+    if (j.sta_ip) {
+      document.getElementById('wifiStat').textContent =
+        'Home WiFi: ' + j.sta_ip + ' · AP: ClaWD-Mochi';
+    }
+    updateMonitorUI(j);
   } catch(e) {}
-  // Always reset bg picker to default orange on page load
   document.getElementById('bgCol').value = '#aa4818';
   redrawCanvas('#aa4818');
 })();
@@ -909,6 +1198,9 @@ void routeCmd() {
     case 'd':
       currentView = VIEW_CODE; drawCodeView();
       termMode = true; termClear(); termFullRedraw(); break;
+    case 'm':
+      enterMonitorView();
+      break;
     case 'a':
       currentView = VIEW_EYES_NORMAL;
       animLogoReveal();
@@ -939,6 +1231,13 @@ void routeRedraw() {
     case VIEW_EYES_SQUISH: drawSquishEyes(); break;
     case VIEW_CODE:        drawCodeView();   break;
     case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
+    case VIEW_MONITOR:
+      switch (monitorState) {
+        case MON_THINKING: drawSquishEyes(false); break;
+        case MON_WORKING:  drawCodeView(); break;
+        default:           drawNormalEyes(); break;
+      }
+      break;
   }
   server.send(200, "application/json", "{\"ok\":1}");
 }
@@ -991,6 +1290,37 @@ void routeDrawStroke() {
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
+void routeStatus() {
+  if (!server.hasArg("s") || server.arg("s").isEmpty()) {
+    server.send(400, "application/json", "{\"e\":1}");
+    return;
+  }
+  const String s = server.arg("s");
+  server.send(200, "application/json", "{\"ok\":1}");
+  applyMonitorState(s);
+}
+
+void routeWifiSave() {
+  if (!server.hasArg("ssid") || server.arg("ssid").isEmpty()) {
+    server.send(400, "application/json", "{\"e\":1}");
+    return;
+  }
+  const String ssid = server.arg("ssid");
+  const String pass = server.hasArg("pass") ? server.arg("pass") : "";
+  saveWifiCredentials(ssid, pass);
+  WiFi.disconnect();
+  delay(100);
+  connectSTA();
+  drawWifiScreen();
+
+  String j = "{\"ok\":1,\"sta\":";
+  j += staConnected ? "true" : "false";
+  j += ",\"sta_ip\":\"";
+  j += staIP;
+  j += "\"}";
+  server.send(200, "application/json", j);
+}
+
 void routeBacklight() {
   setBacklight(server.hasArg("on") && server.arg("on") == "1");
   server.send(200, "application/json", "{\"ok\":1}");
@@ -1012,6 +1342,12 @@ void routeState() {
   j += ",\"term\":";   j += termMode    ? "true" : "false";
   j += ",\"bl\":";     j += backlightOn ? "true" : "false";
   j += ",\"speed\":";  j += animSpeed;
+  j += ",\"mstate\":\""; j += monitorStateStr(); j += "\"";
+  j += ",\"sta\":";    j += staConnected ? "true" : "false";
+  j += ",\"sta_ip\":\""; j += staIP; j += "\"";
+  j += ",\"monitor\":"; j += (currentView == VIEW_MONITOR) ? "true" : "false";
+  j += ",\"last_status\":";
+  j += (lastStatusMs == 0) ? 0 : (int)((millis() - lastStatusMs) / 1000);
   j += "}";
   server.send(200, "application/json", j);
 }
@@ -1044,23 +1380,18 @@ void setup() {
   // ── Logo shown once at startup ─────────────────────────────
   animLogoReveal();
 
-  // ── Start WiFi ─────────────────────────────────────────────
-  WiFi.mode(WIFI_AP);
+  // ── Start WiFi (AP + optional STA) ─────────────────────────
+  prefs.begin("clawd", false);
+  loadWifiCredentials();
+
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, AP_PASS);
 
-  // ── WiFi info screen (stays until first web request) ───────
-  tft.fillScreen(C_DARKBG);
-  tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
-  tft.setTextColor(C_WHITE);  tft.setTextSize(2);
-  tft.setCursor(12, 16);  tft.print("WiFi: ClaWD-Mochi");
-  tft.setTextColor(C_MUTED);  tft.setTextSize(1);
-  tft.setCursor(12, 44);  tft.print("password: clawd1234");
-  tft.setTextColor(C_WHITE);  tft.setTextSize(2);
-  tft.setCursor(12, 68);  tft.print("Open browser:");
-  tft.setTextColor(C_ORANGE); tft.setTextSize(2);
-  tft.setCursor(12, 94);  tft.print("192.168.4.1");
-  tft.setTextColor(C_MUTED);  tft.setTextSize(1);
-  tft.setCursor(12, 124); tft.print("press any button to start");
+  if (savedSSID.length() > 0) {
+    connectSTA();
+  }
+
+  drawWifiScreen();
 
   // ── Register routes ────────────────────────────────────────
   server.on("/",            HTTP_GET, routeRoot);
@@ -1072,16 +1403,33 @@ void setup() {
   server.on("/draw/clear",  HTTP_GET, routeDrawClear);
   server.on("/draw/stroke", HTTP_GET, routeDrawStroke);
   server.on("/backlight",   HTTP_GET, routeBacklight);
+  server.on("/status",      HTTP_GET, routeStatus);
+  server.on("/wifi/save",   HTTP_GET, routeWifiSave);
   server.on("/state",       HTTP_GET, routeState);
   server.onNotFound(routeNotFound);
   server.begin();
-
-  // WiFi info stays on screen — first button press triggers setView/cmd
-  // which will replace it with the correct view
 }
 
 // ═════════════════════════════════════════════════════════════
 //  LOOP
 // ═════════════════════════════════════════════════════════════
 
-void loop() { server.handleClient(); }
+void loop() {
+  server.handleClient();
+  checkStatusTimeout();
+
+  static unsigned long lastWifiCheck = 0;
+  if (millis() - lastWifiCheck > 30000) {
+    lastWifiCheck = millis();
+    if (savedSSID.length() > 0) {
+      const bool wasConnected = staConnected;
+      staConnected = (WiFi.status() == WL_CONNECTED);
+      if (staConnected) {
+        staIP = WiFi.localIP().toString();
+      } else {
+        staIP = "";
+        if (wasConnected) connectSTA();
+      }
+    }
+  }
+}
