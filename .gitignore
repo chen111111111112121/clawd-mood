@@ -23,3 +23,6 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+
+# Superpowers brainstorm sessions
+.superpowers/
