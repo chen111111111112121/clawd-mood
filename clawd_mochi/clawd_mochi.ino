@@ -1313,6 +1313,7 @@ void checkIdleRotation() {
 }
 
 void applyMonitorState(const String& s) {
+  if (busy) return;   // 阻塞动画期间丢弃状态推送,防 done 递归与状态撕裂
   if (s == "done") {
     lastStatusMs = millis();
     statusTimedOut = false;
@@ -2013,7 +2014,17 @@ void routeRedraw() {
     case VIEW_CODE:        drawCodeView();   break;
     case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
     case VIEW_MONITOR:
-      rigApplyExpression(true);   // 换背景色后整区重绘
+      switch (monitorState) {
+        case MON_ALERT:
+          drawLogoFilled(animBgColor, C_WHITE);   // 重绘 ALERT 定格画面(animLogoReveal 末行)
+          break;
+        case MON_OFFLINE:
+          drawNormalEyes();
+          break;
+        default:
+          rigApplyExpression(true);   // 换背景色后整区重绘
+          break;
+      }
       break;
   }
   server.send(200, "application/json", "{\"ok\":1}");
