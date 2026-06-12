@@ -16,6 +16,35 @@
 | `Notification` | `alert` | Logo 动画 |
 | `SessionEnd` | `offline` | Normal Eyes + 关闭背光 |
 
+## 工具语义（act/info）
+
+`PreToolUse` / `PostToolUse` 事件会额外附带工具语义：
+
+```
+GET /status?s=working&act=<act>&info=<短文本>
+```
+
+| 工具 | act | info |
+| ---- | --- | ---- |
+| Read / Glob / Grep | `read` | 文件名或搜索词 |
+| Edit / Write / NotebookEdit | `edit` | 文件名 |
+| Bash | `run` | 命令首词 |
+| WebFetch / WebSearch | `net` | 域名 / 查询词 |
+| Task（子代理） | `agent` | 任务描述 |
+| 其他 | `work` | 工具名 |
+
+info 仅保留可打印 ASCII、截断 22 字符；老固件忽略这些参数。
+
+### 调试
+
+`CLAWD_DRY=1` 时只打印将要请求的 URL，不发 HTTP：
+
+```bash
+echo '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"x/main.cpp"}}' | CLAWD_DRY=1 node clawd-hook.js
+```
+
+运行单测：`node --test hook/test/semantics.test.js`
+
 ## 前置条件
 
 1. 已烧录支持 Monitor 模式的固件（含 `/status` 端点）
