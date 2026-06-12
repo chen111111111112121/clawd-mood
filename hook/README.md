@@ -55,7 +55,7 @@ node --test hook/test/semantics.test.js
 
 1. 已烧录支持 Monitor 模式的固件（含 `/status` 端点）
 2. 设备已通过 Web 控制器配置并连接家里 WiFi
-3. 记下设备在局域网中的 IP（如 `192.168.1.100`）
+3. 记下设备在局域网中的 IP（如 `192.168.1.100`）；也可以不记 IP，`device.json` 直接填 `clawd.local`
 4. PC 与设备在同一局域网（PC 可正常上网）
 
 ## 安装步骤
@@ -68,12 +68,16 @@ node --test hook/test/semantics.test.js
 cp device.json.example device.json
 ```
 
-编辑 `device.json`：
+编辑 `device.json`，支持两种写法：
 
 ```json
-{
-  "device_ip": "192.168.1.100"
-}
+{ "device_ip": "192.168.1.100" }
+```
+
+或直接填主机名（hook 内置 mDNS 组播直查，绕过代理 fake-ip DNS 劫持，解析结果缓存 10 分钟到 `device-cache.json`，可随意删除）：
+
+```json
+{ "device_ip": "clawd.local" }
 ```
 
 或使用环境变量（优先级更高）：
@@ -231,6 +235,7 @@ echo '{"hook_event_name":"beforeSubmitPrompt"}' | & "D:\nodejs\node.exe" "D:/Des
 | Claude Code 报错 | 检查 `node` 是否在 PATH 中、路径是否正确 |
 | Cursor Hook 无反应 | 检查 `~/.cursor/hooks.json`、Settings → Hooks、重启 Cursor |
 | Clawd on Desk 覆盖配置 | 确认 hooks 指向本仓库的 `clawd-hook.js`，非旧版 Desktop 路径 |
+| `clawd.local` 不通 | 确认与设备同一网络；代理 fake-ip 需放行 `*.local`；删 `device-cache.json` 强制重查 |
 
 Hook 脚本**静默失败**，不会影响 Claude Code / Cursor 正常使用。
 
