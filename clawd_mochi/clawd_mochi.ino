@@ -107,6 +107,9 @@ uint8_t  currentIdleExpr  = IDLE_NORMAL;
 uint8_t  animPhase        = 0;
 unsigned long lastStatusMs = 0;
 unsigned long lastIdleSwitch = 0;
+
+#define BOOT_INFO_MS 10000
+unsigned long bootScreenDeadline = 0;   // >0 = 开机信息屏倒计时中
 unsigned long lastAnimTick   = 0;
 uint32_t nextIdleSwitchMs = 30000;
 
@@ -1460,6 +1463,7 @@ void setTickerText(uint8_t act, const String& info) {
 
 void applyMonitorState(const String& s, const String& act, const String& info) {
   if (busy) return;   // 阻塞动画期间丢弃状态推送,防 done 递归与状态撕裂
+  bootScreenDeadline = 0;   // 首个状态推送取消开机信息屏倒计时
   if (s == "done") {
     lastStatusMs = millis();
     statusTimedOut = false;
@@ -1495,19 +1499,24 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   if (currentView == VIEW_DRAW) return;
   if (currentView == VIEW_CODE && termMode) return;
 
+  const bool entering = (currentView != VIEW_MONITOR);
   currentView = VIEW_MONITOR;
   termMode = false;
+  if (entering) {
+    tft.fillScreen(animBgColor);   // 从其他画面切入:整屏清理,杜绝残留
+    rigInvalidate();
+  }
 
   switch (monitorState) {
     case MON_IDLE:
       if (!backlightOn) setBacklight(true);
       resetIdleRotation();
-      rigApplyExpression(false);
+      rigApplyExpression(entering);
       break;
     case MON_THINKING:
     case MON_WORKING:
       if (!backlightOn) setBacklight(true);
-      rigApplyExpression(false);
+      rigApplyExpression(entering);
       break;
     case MON_ALERT:
       if (!backlightOn) setBacklight(true);
@@ -1523,11 +1532,13 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
 }
 
 void enterMonitorView() {
+  bootScreenDeadline = 0;        // 取消开机信息屏倒计时,防重复触发
   currentView = VIEW_MONITOR;
   termMode = false;
   statusTimedOut = false;
   lastAnimTick = 0;
   if (monitorState == MON_IDLE) resetIdleRotation();
+  tft.fillScreen(animBgColor);   // 手动切入同样整屏清理
   rigApplyExpression(true);   // snap:进视图立即就位
 }
 
@@ -2130,6 +2141,7 @@ void routeCmd() {
   }
 
   server.send(200, "application/json", "{\"ok\":1}");
+  bootScreenDeadline = 0;   // 任何有效按键取消开机信息屏倒计时
   switch (c) {
     case 'w': currentView = VIEW_EYES_NORMAL; animNormalEyes(); break;
     case 's': currentView = VIEW_EYES_SQUISH; animSquishEyes(); break;
@@ -2188,11 +2200,12 @@ void routeRedraw() {
 
 void routeCanvas() {
   const bool on = server.hasArg("on") && server.arg("on") == "1";
-  if (on) { currentView = VIEW_DRAW; tft.fillScreen(drawBgColor); }
+  if (on) { bootScreenDeadline = 0; currentView = VIEW_DRAW; tft.fillScreen(drawBgColor); }
   server.send(200, "application/json", "{\"ok\":1}");
 }
 
 void routeDrawClear() {
+  bootScreenDeadline = 0;   // 画布清除也取消开机信息屏倒计时
   const String bg = server.hasArg("bg") ? server.arg("bg") : "#aa4818";
   drawBgColor = hexToRgb565(bg);
   animBgColor = drawBgColor;  // keep in sync
@@ -2339,6 +2352,7 @@ void setup() {
   }
 
   drawWifiScreen();
+  bootScreenDeadline = millis() + BOOT_INFO_MS;
 
   // ── Register routes ────────────────────────────────────────
   server.on("/",            HTTP_GET, routeRoot);
@@ -2363,6 +2377,10 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  if (bootScreenDeadline && millis() >= bootScreenDeadline) {
+    bootScreenDeadline = 0;
+    enterMonitorView();
+  }
   checkStatusTimeout();
   checkIdleRotation();
   tickMonitorAnimation();
