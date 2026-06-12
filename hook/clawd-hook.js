@@ -2,6 +2,7 @@
 /**
  * Clawd Mochi — Claude Code & Cursor → ESP32 status hook
  * GET http://<device-ip>/status?s=idle|thinking|working|done|alert|offline
+ *   working 时附带 &act=read|edit|run|net|agent|work&info=<短文本>;CLAWD_DRY=1 仅打印 URL
  *
  * Config: hook/device.json  or  env CLAWD_DEVICE_IP
  *
@@ -134,18 +135,6 @@ function readStdin() {
   });
 }
 
-function resolveEvent(stdinText) {
-  let event = process.argv[2];
-  const text = (stdinText || '').trim();
-  if (text) {
-    try {
-      const payload = JSON.parse(text);
-      if (payload.hook_event_name) event = payload.hook_event_name;
-    } catch (_) {}
-  }
-  return event;
-}
-
 function writeCursorStdout(event) {
   // Cursor gating hooks expect valid JSON on stdout
   if (event === 'beforeSubmitPrompt') {
@@ -153,10 +142,13 @@ function writeCursorStdout(event) {
   }
 }
 
-function pushState(state) {
+function pushState(state, semantics) {
+  const url = buildStatusUrl(getDeviceIP(), state, semantics);
+  if (process.env.CLAWD_DRY === '1') {
+    process.stdout.write(url + '\n');
+    return Promise.resolve(true);
+  }
   return new Promise((resolve) => {
-    const ip = getDeviceIP();
-    const url = `http://${ip}/status?s=${encodeURIComponent(state)}`;
     const req = http.get(url, (res) => {
       res.resume();
       resolve(true);
@@ -171,16 +163,22 @@ function pushState(state) {
 
 async function main() {
   const stdinText = await readStdin();
-  const event = resolveEvent(stdinText);
+  let payload = null;
+  const text = (stdinText || '').trim();
+  if (text) {
+    try { payload = JSON.parse(text); } catch (_) {}
+  }
+  const event = (payload && payload.hook_event_name) || process.argv[2];
   writeCursorStdout(event);
   const state = STATE_MAP[event];
   if (!state) process.exit(0);
-  await pushState(state);
+  const semantics = state === 'working' ? resolveSemantics(payload) : null;
+  await pushState(state, semantics);
   process.exit(0);
 }
 
+module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP };
+
 if (require.main === module) {
   main().catch(() => process.exit(0));
-} else {
-  module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP };
 }
