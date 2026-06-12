@@ -955,6 +955,14 @@ void rigApplyExpression(bool snap) {
     }
   }
 
+  // 表情身份去重:同一表情的重复推送不打断行为脚本
+  uint8_t exprId = monitorState;
+  if (monitorState == MON_IDLE)    exprId |= (uint8_t)(currentIdleExpr << 4);
+  if (monitorState == MON_WORKING) exprId |= (uint8_t)(workAct << 4);
+  static uint8_t lastExprId = 255;
+  if (!snap && exprId == lastExprId) return;
+  lastExprId = exprId;
+
   if (snap) rigSnapPose(p, f);
   else      rigSetPose(p, f);
 }
