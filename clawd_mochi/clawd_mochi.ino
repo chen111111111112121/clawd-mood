@@ -423,7 +423,7 @@ void drawWifiScreen() {
     tft.setCursor(12, 140); tft.print("configure in web portal");
   }
   tft.setTextColor(C_MUTED); tft.setTextSize(1);
-  tft.setCursor(12, 210); tft.print("press any button to start");
+  tft.setCursor(12, 210); tft.print("auto start in 10s ...");
 }
 
 // ═════════════════════════════════════════════════════════════
