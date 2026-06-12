@@ -10,8 +10,8 @@
 | ---------------- | -------- | -------- |
 | `SessionStart` | `idle` | Normal Eyes |
 | `UserPromptSubmit` | `thinking` | Squish Eyes |
-| `PreToolUse` | `working` | 收窄双眼扫视（Scan 眼） |
-| `PostToolUse` | `working` | 收窄双眼扫视（Scan 眼） |
+| `PreToolUse` | `working` | 按工具六种姿态 + 底部 ticker（见「工具语义」节） |
+| `PostToolUse` | `working` | 按工具六种姿态 + 底部 ticker（见「工具语义」节） |
 | `Stop` | `done` | 开心笑眼 + 闪光 → 自动 idle |
 | `Notification` | `alert` | Logo 动画 |
 | `SessionEnd` | `offline` | Normal Eyes + 关闭背光 |
