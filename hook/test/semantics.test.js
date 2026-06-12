@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics,
+  buildMdnsQuery, parseMdnsAnswer, isIPv4,
 } = require('../clawd-hook.js');
 
 // ── classifyTool ──────────────────────────────────────────────
@@ -107,4 +108,61 @@ test('info 为空时省略 info 参数', () => {
   assert.strictEqual(
     buildStatusUrl('1.2.3.4', 'working', { act: 'run', info: '' }),
     'http://1.2.3.4/status?s=working&act=run');
+});
+
+// ── mDNS 报文 ─────────────────────────────────────────────────
+test('buildMdnsQuery: clawd.local 报文结构正确', () => {
+  const b = buildMdnsQuery('clawd.local');
+  assert.strictEqual(b.readUInt16BE(4), 1);                    // QDCOUNT=1
+  assert.strictEqual(b[12], 5);                                // "clawd" 长度
+  assert.strictEqual(b.toString('ascii', 13, 18), 'clawd');
+  assert.strictEqual(b[18], 5);                                // "local" 长度
+  assert.strictEqual(b.toString('ascii', 19, 24), 'local');
+  assert.strictEqual(b[24], 0);                                // 根标签
+  assert.strictEqual(b.readUInt16BE(25), 1);                   // QTYPE A
+  assert.strictEqual(b.readUInt16BE(27), 0x8001);              // QCLASS IN + QU
+  assert.strictEqual(b.length, 29);
+});
+
+test('parseMdnsAnswer: 标准应答提取 A 记录', () => {
+  // 手工构造:header(an=1) + answer(无压缩): clawd.local A 192.168.1.50
+  const name = Buffer.from([5, 99, 108, 97, 119, 100, 5, 108, 111, 99, 97, 108, 0]);
+  const hdr = Buffer.alloc(12); hdr.writeUInt16BE(0x8400, 2); hdr.writeUInt16BE(1, 6); // QR+AA, ANCOUNT=1
+  const rr = Buffer.alloc(10); rr.writeUInt16BE(1, 0); rr.writeUInt16BE(0x8001, 2);    // TYPE A, CLASS
+  rr.writeUInt32BE(120, 4); rr.writeUInt16BE(4, 8);                                    // TTL, RDLEN
+  const ip = Buffer.from([192, 168, 1, 50]);
+  const msg = Buffer.concat([hdr, name, rr, ip]);
+  assert.strictEqual(parseMdnsAnswer(msg, 'clawd.local'), '192.168.1.50');
+});
+
+test('parseMdnsAnswer: 压缩指针应答可解析', () => {
+  // header(qd=1, an=1) + question(clawd.local) + answer 名字用 0xC00C 指回 question
+  const hdr = Buffer.alloc(12); hdr.writeUInt16BE(1, 4); hdr.writeUInt16BE(1, 6);
+  const qname = Buffer.from([5, 99, 108, 97, 119, 100, 5, 108, 111, 99, 97, 108, 0]);
+  const qtail = Buffer.alloc(4); qtail.writeUInt16BE(1, 0); qtail.writeUInt16BE(1, 2);
+  const ptr = Buffer.from([0xc0, 0x0c]);
+  const rr = Buffer.alloc(10); rr.writeUInt16BE(1, 0); rr.writeUInt16BE(1, 2);
+  rr.writeUInt32BE(120, 4); rr.writeUInt16BE(4, 8);
+  const ip = Buffer.from([10, 0, 0, 7]);
+  const msg = Buffer.concat([hdr, qname, qtail, ptr, rr, ip]);
+  assert.strictEqual(parseMdnsAnswer(msg, 'clawd.local'), '10.0.0.7');
+});
+
+test('parseMdnsAnswer: 名字不匹配返回 null', () => {
+  const name = Buffer.from([5, 111, 116, 104, 101, 114, 5, 108, 111, 99, 97, 108, 0]); // other.local
+  const hdr = Buffer.alloc(12); hdr.writeUInt16BE(1, 6);
+  const rr = Buffer.alloc(10); rr.writeUInt16BE(1, 0); rr.writeUInt16BE(4, 8);
+  const msg = Buffer.concat([hdr, name, rr, Buffer.from([1, 2, 3, 4])]);
+  assert.strictEqual(parseMdnsAnswer(msg, 'clawd.local'), null);
+});
+
+test('parseMdnsAnswer: 垃圾输入不抛异常', () => {
+  assert.strictEqual(parseMdnsAnswer(Buffer.from([1, 2, 3]), 'clawd.local'), null);
+  assert.strictEqual(parseMdnsAnswer(Buffer.alloc(0), 'clawd.local'), null);
+});
+
+test('isIPv4: 判定', () => {
+  assert.strictEqual(isIPv4('192.168.1.1'), true);
+  assert.strictEqual(isIPv4('clawd.local'), false);
+  assert.strictEqual(isIPv4(''), false);
 });

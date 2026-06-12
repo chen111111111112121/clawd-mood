@@ -4,7 +4,7 @@
  * GET http://<device-ip>/status?s=idle|thinking|working|done|alert|offline
  *   working 时附带 &act=read|edit|run|net|agent|work&info=<短文本>;CLAWD_DRY=1 仅打印 URL
  *
- * Config: hook/device.json  or  env CLAWD_DEVICE_IP
+ * Config: hook/device.json(device_ip 可填 IP 或 clawd.local) or env CLAWD_DEVICE_IP
  *
  * Claude Code: argv event + stdin JSON (hook_event_name PascalCase)
  * Cursor:      stdin JSON only (hook_event_name camelCase)
@@ -13,9 +13,13 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const dgram = require('dgram');
 
 const CONFIG_PATH = path.join(__dirname, 'device.json');
+const CACHE_PATH = path.join(__dirname, 'device-cache.json');
 const TIMEOUT_MS = 2500;
+const MDNS_TIMEOUT_MS = 700;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 // Claude Code (PascalCase) + Cursor (camelCase)
 const STATE_MAP = {
@@ -111,13 +115,136 @@ function buildStatusUrl(ip, state, semantics) {
   return url;
 }
 
-function getDeviceIP() {
+function getConfiguredTarget() {
   if (process.env.CLAWD_DEVICE_IP) return process.env.CLAWD_DEVICE_IP.trim();
   try {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     if (cfg.device_ip) return String(cfg.device_ip).trim();
   } catch (_) {}
   return '192.168.150.21';
+}
+
+function isIPv4(s) {
+  return typeof s === 'string' && /^\d{1,3}(\.\d{1,3}){3}$/.test(s);
+}
+
+function buildMdnsQuery(name) {
+  const labels = String(name).split('.').filter(Boolean);
+  let qlen = 1;
+  for (const l of labels) qlen += 1 + l.length;
+  const buf = Buffer.alloc(12 + qlen + 4);
+  buf.writeUInt16BE(1, 4);                          // QDCOUNT
+  let off = 12;
+  for (const l of labels) {
+    buf.writeUInt8(l.length, off++);
+    buf.write(l, off, 'ascii');
+    off += l.length;
+  }
+  buf.writeUInt8(0, off++);
+  buf.writeUInt16BE(1, off); off += 2;              // QTYPE A
+  buf.writeUInt16BE(0x8001, off);                   // QCLASS IN + QU(单播应答)
+  return buf;
+}
+
+function readDnsName(buf, off) {
+  const parts = [];
+  let pos = off, jumped = false, jumps = 0;
+  for (;;) {
+    if (pos >= buf.length || jumps > 8) return null;
+    const len = buf[pos];
+    if (len === 0) { pos++; break; }
+    if ((len & 0xc0) === 0xc0) {                    // 压缩指针
+      if (pos + 1 >= buf.length) return null;
+      const ptr = ((len & 0x3f) << 8) | buf[pos + 1];
+      if (!jumped) off = pos + 2;
+      pos = ptr; jumped = true; jumps++;
+      continue;
+    }
+    if (pos + 1 + len > buf.length) return null;
+    parts.push(buf.toString('ascii', pos + 1, pos + 1 + len));
+    pos += 1 + len;
+  }
+  return { name: parts.join('.'), next: jumped ? off : pos };
+}
+
+function parseMdnsAnswer(buf, wantName) {
+  if (!Buffer.isBuffer(buf) || buf.length < 12) return null;
+  const qd = buf.readUInt16BE(4);
+  const an = buf.readUInt16BE(6);
+  let off = 12;
+  try {
+    for (let i = 0; i < qd; i++) {                  // 跳过 question 区
+      const n = readDnsName(buf, off);
+      if (!n) return null;
+      off = n.next + 4;
+    }
+    for (let i = 0; i < an; i++) {
+      const n = readDnsName(buf, off);
+      if (!n) return null;
+      off = n.next;
+      if (off + 10 > buf.length) return null;
+      const type = buf.readUInt16BE(off);
+      const rdlen = buf.readUInt16BE(off + 8);
+      off += 10;
+      if (off + rdlen > buf.length) return null;
+      if (type === 1 && rdlen === 4 && n.name.toLowerCase() === String(wantName).toLowerCase()) {
+        return `${buf[off]}.${buf[off + 1]}.${buf[off + 2]}.${buf[off + 3]}`;
+      }
+      off += rdlen;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function mdnsLookup(name, timeoutMs) {
+  return new Promise((resolve) => {
+    let sock;
+    let finished = false;
+    const done = (ip) => {
+      if (finished) return;
+      finished = true;
+      try { sock.close(); } catch (_) {}
+      resolve(ip);
+    };
+    try { sock = dgram.createSocket('udp4'); } catch (_) { resolve(null); return; }
+    const timer = setTimeout(() => done(null), timeoutMs);
+    sock.on('error', () => { clearTimeout(timer); done(null); });
+    sock.on('message', (msg) => {
+      const ip = parseMdnsAnswer(msg, name);
+      if (ip) { clearTimeout(timer); done(ip); }
+    });
+    sock.bind(0, () => {
+      try {
+        sock.send(buildMdnsQuery(name), 5353, '224.0.0.251');
+      } catch (_) { clearTimeout(timer); done(null); }
+    });
+  });
+}
+
+function readIpCache(host) {
+  try {
+    const c = JSON.parse(fs.readFileSync(CACHE_PATH, 'utf8'));
+    if (c && c.host === host && isIPv4(c.ip)) return c;
+  } catch (_) {}
+  return null;
+}
+
+function writeIpCache(host, ip) {
+  try {
+    fs.writeFileSync(CACHE_PATH, JSON.stringify({ host, ip, ts: Date.now() }));
+  } catch (_) {}
+}
+
+async function resolveDeviceIP() {
+  const target = getConfiguredTarget();
+  if (isIPv4(target)) return target;
+  // 主机名(如 clawd.local):mDNS 组播直查,绕开被代理劫持的系统 DNS
+  const cached = readIpCache(target);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.ip;
+  const ip = await mdnsLookup(target, MDNS_TIMEOUT_MS);
+  if (ip) { writeIpCache(target, ip); return ip; }
+  if (cached) return cached.ip;                     // 过期缓存兜底
+  return target;                                    // 交给系统解析碰运气
 }
 
 function readStdin() {
@@ -142,11 +269,11 @@ function writeCursorStdout(event) {
   }
 }
 
-function pushState(state, semantics) {
-  const url = buildStatusUrl(getDeviceIP(), state, semantics);
+async function pushState(state, semantics) {
+  const url = buildStatusUrl(await resolveDeviceIP(), state, semantics);
   if (process.env.CLAWD_DRY === '1') {
     process.stdout.write(url + '\n');
-    return Promise.resolve(true);
+    return true;
   }
   return new Promise((resolve) => {
     const req = http.get(url, (res) => {
@@ -177,7 +304,7 @@ async function main() {
   process.exit(0);
 }
 
-module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP };
+module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP, buildMdnsQuery, parseMdnsAnswer, readDnsName, isIPv4 };
 
 if (require.main === module) {
   main().catch(() => process.exit(0));
