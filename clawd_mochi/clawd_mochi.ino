@@ -89,6 +89,17 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 const uint8_t IDLE_POOL[] = { IDLE_NORMAL, IDLE_SLEEPY, IDLE_HEART, IDLE_HAPPY };
 #define IDLE_POOL_SIZE 4
 
+// ── Working sub-acts (semantic working states) ───────────────
+#define ACT_WORK  0
+#define ACT_READ  1
+#define ACT_EDIT  2
+#define ACT_RUN   3
+#define ACT_NET   4
+#define ACT_AGENT 5
+
+uint8_t workAct = ACT_WORK;
+char    tickerText[32] = "";
+
 uint8_t  currentView   = VIEW_EYES_NORMAL;
 uint8_t  monitorState  = MON_IDLE;
 uint8_t  currentIdleIndex = 0;
@@ -120,6 +131,63 @@ uint8_t  animSpeed    = 2;   // 1=slow 2=normal(default) 3=fast
 
 uint16_t animBgColor  = 0;   // background for eye/logo animations
 uint16_t drawBgColor  = 0;   // background for canvas
+
+// ── Eye rig: lively expression engine ────────────────────────
+enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART };
+
+struct EyePose {
+  EyeStyle style;
+  int16_t  ox, oy;   // 眼对偏移
+  int16_t  w, h;     // RECT:眼宽高 | CHEVRON:w=reach,h=2*arm | ARC:w=弧宽 | HEART:w=像素 scale
+  uint8_t  lid;      // 眼睑 0=全开 .. 240=全闭
+};
+
+#define RIG_BLINK    0x01
+#define RIG_SACCADE  0x02
+#define RIG_BREATH   0x04
+#define RIG_BREATH2  0x08   // 双倍呼吸幅度(困倦)
+
+struct Spring { int32_t cur, vel; };   // 8.8 定点
+
+struct EyeRig {
+  EyePose  pose;            // 目标姿态
+  uint8_t  flags;
+  EyeStyle drawnStyle;      // 当前屏上样式
+  Spring   ox, oy, w, h, lid;
+  unsigned long nextBlinkMs, nextSaccadeMs;
+  uint8_t  blinkFrame;      // 0=未眨眼,1..BLINK_FRAMES=进行中
+  bool     blinkAgain;      // 双连眨待续
+  int16_t  sacX;
+  uint16_t breathPhase;     // 8.8 相位
+  EyeRect  prevL, prevR;
+  bool     prevValid;
+  bool     zoneDirty;       // 需整区清屏(样式切换等)
+  uint8_t  trans;           // 样式过渡 0=无 1=闭眼中 2=睁眼中
+  EyePose  transNext;
+  uint8_t  transFlagsNext;
+};
+
+EyeRig rig;
+bool rigZoneCleared = false;   // 本帧是否清过表情区(供覆盖层重绘判断)
+
+#define RIG_TICK_MS  33
+#define RIG_DAMP     196       // 速度阻尼(/256)
+#define BLINK_FRAMES 7
+static const uint8_t BLINK_H_PCT[BLINK_FRAMES] = {106, 60, 8, 8, 70, 104, 100};
+static const uint8_t BLINK_W_PCT[BLINK_FRAMES] = { 97, 105, 118, 118, 103, 98, 100};
+static const int8_t  BREATH_TAB[16] = {0,1,1,2,2,2,1,1,0,-1,-1,-2,-2,-2,-1,-1};
+
+// 姿态预设
+const EyePose POSE_NORMAL = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
+const EyePose POSE_SLEEPY = {STYLE_RECT,    0,  8, EYE_W, EYE_H, 170};
+const EyePose POSE_HEART  = {STYLE_HEART,   0,  0, 6, 6, 0};
+const EyePose POSE_HAPPY  = {STYLE_ARC,     0,  8, 30, 30, 0};
+const EyePose POSE_THINK  = {STYLE_CHEVRON, 0,  0, EYE_W / 2, EYE_H, 0};
+const EyePose POSE_SCAN   = {STYLE_RECT,    0,  0, SCAN_EYE_W, EYE_H, 0};
+const EyePose POSE_READ   = {STYLE_RECT,    0, 26, 26, 16, 0};
+const EyePose POSE_EDIT   = {STYLE_RECT,    0,  0, 22, 38, 50};
+const EyePose POSE_RUN    = {STYLE_RECT,    0,  0, 14, 44, 0};
+const EyePose POSE_NET    = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
 
 // ── Terminal ──────────────────────────────────────────────────
 #define TERM_COLS      15
@@ -620,6 +688,323 @@ void drawSparkles(uint8_t count = 10) {
       tft.drawPixel(x + sz, y + sz / 2, col);
       tft.drawPixel(x + sz / 2, y + sz, col);
     }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════
+//  EYE RIG ENGINE
+// ═════════════════════════════════════════════════════════════
+
+int16_t rigK() {               // 弹簧刚度(/256),随 animSpeed
+  if (animSpeed == 3) return 72;
+  if (animSpeed == 1) return 30;
+  return 48;
+}
+
+void springTo(Spring &s, int32_t target) {   // target 为 8.8
+  s.vel += ((target - s.cur) * rigK()) >> 8;
+  s.vel  = (s.vel * RIG_DAMP) >> 8;
+  s.cur += s.vel;
+}
+
+void springSnap(Spring &s, int32_t target) { s.cur = target; s.vel = 0; }
+
+inline int16_t rigLCX(int16_t ox) { return eyeLX(ox) + EYE_W / 2; }
+inline int16_t rigRCX(int16_t ox) { return eyeRX(ox) + EYE_W / 2; }
+
+void rigInvalidate() {
+  rig.prevValid = false;
+  rig.zoneDirty = true;
+}
+
+void rigSnapPose(const EyePose &p, uint8_t flags) {
+  rig.pose = p; rig.flags = flags; rig.trans = 0;
+  springSnap(rig.ox,  (int32_t)p.ox  << 8);
+  springSnap(rig.oy,  (int32_t)p.oy  << 8);
+  springSnap(rig.w,   (int32_t)p.w   << 8);
+  springSnap(rig.h,   (int32_t)p.h   << 8);
+  springSnap(rig.lid, (int32_t)p.lid << 8);
+  rig.drawnStyle = p.style;
+  rig.blinkFrame = 0;
+  rigInvalidate();
+}
+
+void rigSetPose(const EyePose &p, uint8_t flags) {
+  if (p.style != rig.drawnStyle) {
+    rig.trans = 1;                 // 闭眼→换样式→睁眼(过渡中再调用则更新目标)
+    rig.transNext = p;
+    rig.transFlagsNext = flags;
+    return;
+  }
+  if (rig.trans == 1) rig.trans = 0;   // 过渡中改回同样式:取消闭眼
+  rig.pose = p;
+  rig.flags = flags;
+}
+
+int16_t rigBreathOffset() {
+  if (!(rig.flags & (RIG_BREATH | RIG_BREATH2))) return 0;
+  int16_t v = BREATH_TAB[(rig.breathPhase >> 8) & 15];
+  if (rig.flags & RIG_BREATH2) v *= 2;
+  return v;
+}
+
+void rigTick(unsigned long now) {
+  // 样式过渡
+  if (rig.trans == 1) {
+    springTo(rig.lid, (int32_t)240 << 8);
+    if ((rig.lid.cur >> 8) >= 225) {
+      rig.pose  = rig.transNext;
+      rig.flags = rig.transFlagsNext;
+      springSnap(rig.ox, (int32_t)rig.pose.ox << 8);
+      springSnap(rig.oy, (int32_t)rig.pose.oy << 8);
+      springSnap(rig.w,  (int32_t)rig.pose.w  << 8);
+      springSnap(rig.h,  (int32_t)rig.pose.h  << 8);
+      rig.drawnStyle = rig.pose.style;
+      rig.zoneDirty = true;
+      rig.trans = 2;
+    }
+  } else {
+    if (rig.trans == 2 && (rig.lid.cur >> 8) <= rig.pose.lid + 12) rig.trans = 0;
+    springTo(rig.lid, (int32_t)rig.pose.lid << 8);
+  }
+
+  // 微扫视
+  if ((rig.flags & RIG_SACCADE) && rig.trans == 0) {
+    if (now >= rig.nextSaccadeMs) {
+      rig.sacX = (int16_t)random(-3, 4);
+      rig.nextSaccadeMs = now + 700 + random(1300);
+    }
+  } else {
+    rig.sacX = 0;
+  }
+
+  springTo(rig.ox, ((int32_t)(rig.pose.ox + rig.sacX)) << 8);
+  springTo(rig.oy, (int32_t)rig.pose.oy << 8);
+  springTo(rig.w,  (int32_t)rig.pose.w  << 8);
+  springTo(rig.h,  (int32_t)rig.pose.h  << 8);
+
+  // 眨眼
+  if (rig.blinkFrame > 0) {
+    rig.blinkFrame++;
+    if (rig.blinkFrame > BLINK_FRAMES) {
+      if (rig.blinkAgain) { rig.blinkFrame = 1; rig.blinkAgain = false; }
+      else rig.blinkFrame = 0;
+    }
+  } else if ((rig.flags & RIG_BLINK) && rig.trans == 0 && now >= rig.nextBlinkMs) {
+    rig.blinkFrame = 1;
+    rig.blinkAgain = (random(100) < 12);
+    rig.nextBlinkMs = now + 2500 + random(3500);
+  }
+
+  // 呼吸
+  if (rig.flags & (RIG_BREATH | RIG_BREATH2)) {
+    rig.breathPhase += (animSpeed == 1) ? 26 : ((animSpeed == 3) ? 60 : 40);
+  }
+}
+
+void drawRigEye(int16_t cx, int16_t cy, int16_t w, int16_t h, int16_t lid,
+                bool rightFacing, EyeRect &out) {
+  switch (rig.drawnStyle) {
+    case STYLE_CHEVRON: {
+      const int16_t arm = ((h / 2) * (240 - lid)) / 240;
+      if (arm <= 3) {
+        tft.fillRect(cx - w / 2, cy - 4, w, 8, C_BLACK);
+        out = {(int16_t)(cx - w / 2), (int16_t)(cy - 4), w, 8, true};
+      } else {
+        drawChevron(cx, cy, arm, w, 10, rightFacing, C_BLACK);
+        out = {(int16_t)(cx - w / 2 - 2), (int16_t)(cy - arm - 12),
+               (int16_t)(w + 4), (int16_t)(arm * 2 + 24), true};
+      }
+      break;
+    }
+    case STYLE_ARC:
+      drawHappyArc(cx, cy, w, C_BLACK);
+      out = {(int16_t)(cx - w / 2), (int16_t)(cy - w / 4 - 2),
+             (int16_t)(w + 2), (int16_t)(w / 4 + 8), true};
+      break;
+    case STYLE_HEART: {
+      uint8_t scale = (uint8_t)((w < 3) ? 3 : ((w > 9) ? 9 : w));
+      drawHeartAt(cx, cy, scale, C_BLACK);
+      out = {(int16_t)(cx - scale * 3), (int16_t)(cy - scale * 3),
+             (int16_t)(scale * 6), (int16_t)(scale * 6), true};
+      break;
+    }
+    default: {  // STYLE_RECT — 眼睑自上而下
+      int16_t vis = (int16_t)((int32_t)h * (240 - lid) / 240);
+      if (vis < 5) vis = 5;
+      const int16_t top = cy - h / 2 + (h - vis);
+      tft.fillRect(cx - w / 2, top, w, vis, C_BLACK);
+      out = {(int16_t)(cx - w / 2), top, w, vis, true};
+      break;
+    }
+  }
+}
+
+void drawRig() {
+  int16_t ox  = rig.ox.cur >> 8;
+  int16_t oy  = (rig.oy.cur >> 8) + rigBreathOffset();
+  int16_t w   = rig.w.cur >> 8;   if (w < 4) w = 4;
+  int16_t h   = rig.h.cur >> 8;   if (h < 4) h = 4;
+  int16_t lid = rig.lid.cur >> 8;
+  if (lid < 0) lid = 0;
+  if (lid > 240) lid = 240;
+
+  if (rig.blinkFrame > 0) {       // 挤压拉伸眨眼,叠加在眼睑之上
+    h = (int16_t)((int32_t)h * BLINK_H_PCT[rig.blinkFrame - 1] / 100);
+    w = (int16_t)((int32_t)w * BLINK_W_PCT[rig.blinkFrame - 1] / 100);
+    if (h < 4) h = 4;
+  }
+
+  rigZoneCleared = false;
+  if (rig.zoneDirty) {
+    tft.fillRect(0, EXPR_ZONE_Y, DISP_W, EXPR_ZONE_H, animBgColor);
+    rig.prevValid = false;
+    rig.zoneDirty = false;
+    rigZoneCleared = true;
+  }
+  if (rig.prevValid) {
+    tft.fillRect(rig.prevL.x - 2, rig.prevL.y - 2, rig.prevL.w + 4, rig.prevL.h + 4, animBgColor);
+    tft.fillRect(rig.prevR.x - 2, rig.prevR.y - 2, rig.prevR.w + 4, rig.prevR.h + 4, animBgColor);
+  }
+
+  const int16_t cy = eyeCY() + oy;
+  drawRigEye(rigLCX(ox), cy, w, h, lid, true,  rig.prevL);
+  drawRigEye(rigRCX(ox), cy, w, h, lid, false, rig.prevR);
+  rig.prevValid = true;
+}
+
+// ── 表情选择:状态 → 姿态 + 行为标志 ──────────────────────────
+void rigApplyExpression(bool snap) {
+  EyePose p = POSE_NORMAL;
+  uint8_t f = RIG_BLINK | RIG_SACCADE | RIG_BREATH;
+
+  if (monitorState == MON_IDLE) {
+    switch (currentIdleExpr) {
+      case IDLE_SLEEPY: p = POSE_SLEEPY; f = RIG_BREATH2;  break;
+      case IDLE_HEART:  p = POSE_HEART;  f = 0;            break;
+      case IDLE_HAPPY:  p = POSE_HAPPY;  f = RIG_BREATH;   break;
+      default: break;
+    }
+  } else if (monitorState == MON_THINKING) {
+    p = POSE_THINK; f = RIG_BREATH;
+  } else if (monitorState == MON_WORKING) {
+    switch (workAct) {
+      case ACT_READ: p = POSE_READ; f = RIG_BLINK; break;
+      case ACT_EDIT: p = POSE_EDIT; f = RIG_BLINK; break;
+      case ACT_RUN:  p = POSE_RUN;  f = 0;         break;
+      case ACT_NET:  p = POSE_NET;  f = RIG_BLINK; break;
+      default:       p = POSE_SCAN; f = 0;         break;
+    }
+  }
+
+  if (snap) rigSnapPose(p, f);
+  else      rigSetPose(p, f);
+}
+
+// ── 脚本化行为:周期性挪动目标姿态,弹簧负责平滑 ─────────────
+void rigBehaviorTick(unsigned long now) {
+  static unsigned long nextMoveMs = 0;
+  static uint8_t step = 0;
+  if (rig.trans != 0) return;
+
+  if (monitorState == MON_IDLE) {
+    switch (currentIdleExpr) {
+      case IDLE_HEART:                    // 心跳脉冲
+        if (now >= nextMoveMs) {
+          rig.pose.w = (rig.pose.w == 6) ? 7 : 6;
+          rig.pose.h = rig.pose.w;
+          nextMoveMs = now + 600;
+        }
+        break;
+      case IDLE_HAPPY: {                  // 缓动摇摆
+        static const int8_t sway[8] = {-6, -3, 0, 3, 6, 3, 0, -3};
+        if (now >= nextMoveMs) { rig.pose.ox = sway[step & 7]; step++; nextMoveMs = now + 260; }
+        break;
+      }
+      default: break;                     // 普通/困倦:噪声层足够
+    }
+    return;
+  }
+
+  if (monitorState == MON_THINKING) {     // chevron 开合
+    if (now >= nextMoveMs) {
+      rig.pose.lid = (rig.pose.lid == 0) ? 240 : 0;
+      nextMoveMs = now + 900;
+    }
+    return;
+  }
+
+  if (monitorState == MON_WORKING) {
+    switch (workAct) {
+      case ACT_READ: {                    // 低头扫读
+        static const int8_t readoy[6] = {22, 26, 30, 34, 30, 26};
+        if (now >= nextMoveMs) { rig.pose.oy = readoy[step % 6]; step++; nextMoveMs = now + 420; }
+        break;
+      }
+      case ACT_RUN:                       // 紧绷快速小扫视
+        if (now >= nextMoveMs) { rig.pose.ox = (int16_t)random(-8, 9); nextMoveMs = now + 260 + random(160); }
+        break;
+      case ACT_NET:                       // 大幅东张西望
+        if (now >= nextMoveMs) { rig.pose.ox = random(2) ? 24 : -24; nextMoveMs = now + 500 + random(400); }
+        break;
+      case ACT_EDIT:                      // 眼睛稳住,光标覆盖层闪烁
+        break;
+      default: {                          // ACT_WORK / ACT_AGENT:经典扫视
+        static const int8_t scan[10] = {-28, -18, -8, 2, 12, 22, 28, 16, 2, -14};
+        if (now >= nextMoveMs) { rig.pose.ox = scan[step % 10]; step++; nextMoveMs = now + 180; }
+        break;
+      }
+    }
+  }
+}
+
+// ── 覆盖层:困倦 Z 字、edit 光标、开心眼星星 ─────────────────
+void rigOverlayTick() {
+  static uint8_t lastZ = 255;
+  static bool caretOn = false;
+  static unsigned long caretMs = 0;
+
+  if (monitorState == MON_IDLE && currentIdleExpr == IDLE_SLEEPY && rig.trans == 0) {
+    const uint8_t z = 1 + (uint8_t)((millis() / 1400) % 3);
+    if (z != lastZ || rigZoneCleared) {
+      const int16_t zy = eyeY() + EYE_H + 14;
+      tft.fillRect(DISP_W / 2 - 36, zy - 2, 72, 20, animBgColor);
+      tft.setTextColor(C_WHITE);
+      tft.setTextSize(2);
+      tft.setCursor(DISP_W / 2 - 24, zy);
+      tft.print("Z");
+      if (z > 1) tft.print(" z");
+      if (z > 2) tft.print(" z");
+      lastZ = z;
+    }
+  } else {
+    lastZ = 255;
+  }
+
+  if (monitorState == MON_WORKING && workAct == ACT_EDIT) {
+    const unsigned long now = millis();
+    if (now - caretMs >= 530 || rigZoneCleared) {
+      if (now - caretMs >= 530) { caretOn = !caretOn; caretMs = now; }
+      tft.fillRect(206, 196, 10, 16, caretOn ? C_GREEN : animBgColor);
+    }
+  }
+
+  // 开心眼:偶发星星(位置避开弧线眼的脏区包围盒)
+  static unsigned long starMs = 0;
+  static bool starsOn = false;
+  if (monitorState == MON_IDLE && currentIdleExpr == IDLE_HAPPY && rig.trans == 0) {
+    const unsigned long snow = millis();
+    if (!starsOn && snow - starMs > 3600) {
+      starsOn = true; starMs = snow;
+      tft.fillRect(rigLCX(0) - 18, eyeCY() - 24, 4, 4, C_WHITE);
+      tft.fillRect(rigRCX(0) + 14, eyeCY() - 22, 3, 3, C_WHITE);
+    } else if (starsOn && snow - starMs > 450) {
+      starsOn = false; starMs = snow;
+      tft.fillRect(rigLCX(0) - 18, eyeCY() - 24, 4, 4, animBgColor);
+      tft.fillRect(rigRCX(0) + 14, eyeCY() - 22, 3, 3, animBgColor);
+    }
+  } else {
+    starsOn = false;   // 离开 happy 后区域由 zone 清理负责
   }
 }
 
