@@ -1,6 +1,8 @@
-# Clawd Mochi × Claude Code Hook
+# Clawd Mochi Hook（Claude Code + Cursor）
 
-将 Claude Code 桌面端的会话事件推送到 Clawd Mochi 设备，屏幕会根据状态自动切换表情。
+将 Claude Code / Cursor Agent 的会话事件推送到 Clawd Mochi 设备，屏幕会根据状态自动切换表情。
+
+**同一脚本** `clawd-hook.js` 同时支持 Claude Code 与 Cursor。
 
 ## 状态映射
 
@@ -8,9 +10,9 @@
 | ---------------- | -------- | -------- |
 | `SessionStart` | `idle` | Normal Eyes |
 | `UserPromptSubmit` | `thinking` | Squish Eyes |
-| `PreToolUse` | `working` | Claude Code 界面 |
-| `PostToolUse` | `working` | Claude Code 界面 |
-| `Stop` | `idle` | Normal Eyes |
+| `PreToolUse` | `working` | 收窄双眼扫视（Scan 眼） |
+| `PostToolUse` | `working` | 收窄双眼扫视（Scan 眼） |
+| `Stop` | `done` | 开心笑眼 + 闪光 → 自动 idle |
 | `Notification` | `alert` | Logo 动画 |
 | `SessionEnd` | `offline` | Normal Eyes + 关闭背光 |
 
@@ -99,6 +101,80 @@ node clawd-hook.js Stop
 
 保存 `settings.json` 后重启 Claude Code，启动新会话即可看到设备进入 `idle` 状态。
 
+---
+
+## Cursor 配置
+
+Cursor 使用 `hooks.json`（不是 Claude 的 `settings.json`）。
+
+### 方式 A：一键全局安装（Cursor + Claude Code，推荐）
+
+在 `hook` 目录运行（将 IP 换成设备屏幕上的地址）：
+
+```powershell
+cd hook
+.\install-global.ps1 -DeviceIP 192.168.150.21
+```
+
+脚本会：
+
+1. 复制 `clawd-hook.js` 到 `%USERPROFILE%\.clawd-mochi\hook\`
+2. 写入 `%USERPROFILE%\.clawd-mochi\hook\device.json`
+3. 写入 Cursor 全局 `%USERPROFILE%\.cursor\hooks.json`
+4. **合并** Claude Code `%USERPROFILE%\.claude\settings.json` 的 `hooks`（不覆盖其他设置）
+
+仅装 Cursor：加 `-SkipClaude`  
+仅装 Claude Code：加 `-SkipCursor`
+
+IP 变更时重跑：`.\install-global.ps1 -DeviceIP <新IP>`  
+或只编辑 `%USERPROFILE%\.clawd-mochi\hook\device.json`
+
+重启 Cursor（Agent 模式）或 Claude Code（新会话）后生效。
+
+### 方式 B：已手动配置的全局 hooks
+
+文件：`%USERPROFILE%\.cursor\hooks.json`
+
+### 方式 C：仅当前项目
+
+仓库内已有：`.cursor/hooks.json`（打开本仓库时生效）
+
+### 方式 D：手动安装
+
+```powershell
+copy hook\cursor-hooks.json.example %USERPROFILE%\.cursor\hooks.json
+# 编辑其中的 node.exe 路径（若不在 D:\nodejs）
+```
+
+### Cursor 事件映射
+
+| Cursor 事件 | 设备状态 | 屏幕表现 |
+| ----------- | -------- | -------- |
+| `sessionStart` | `idle` | 空闲动画 |
+| `beforeSubmitPrompt` | `thinking` | 眯眼 |
+| `preToolUse` / `postToolUse` | `working` | 快速扫视 |
+| `subagentStart` / `subagentStop` | `working` | 快速扫视 |
+| `stop` | `done` | 闪光庆祝 → idle |
+| `sessionEnd` | `offline` | 关背光 |
+| `postToolUseFailure` | `alert` | Logo 动画 |
+| `preCompact` | `thinking` | 眯眼 |
+
+> 未映射的事件（如 `afterAgentThought`）会静默跳过，避免刷屏。
+
+### 启用与调试
+
+1. **重启 Cursor** 或保存 `hooks.json` 后等待自动重载
+2. 打开 **Settings → Hooks** 查看是否加载
+3. 查看 **Hooks** 输出通道排查错误
+4. 测试：在 Agent 里发一条消息，设备应切到 `thinking`
+
+```powershell
+# 模拟 Cursor beforeSubmitPrompt
+echo '{"hook_event_name":"beforeSubmitPrompt"}' | & "D:\nodejs\node.exe" "D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js"
+```
+
+---
+
 ## 设备端 WiFi 配置
 
 1. 手机连接设备热点 `ClaWD-Mochi` / `clawd1234`
@@ -118,15 +194,17 @@ node clawd-hook.js Stop
 | 状态不更新 | 未进入 Monitor 模式（Hook 会自动切换，也可手动点 Monitor） |
 | 30 秒后回到 idle | 正常超时保护（thinking/working 无新事件时自动 idle） |
 | Claude Code 报错 | 检查 `node` 是否在 PATH 中、路径是否正确 |
+| Cursor Hook 无反应 | 检查 `~/.cursor/hooks.json`、Settings → Hooks、重启 Cursor |
+| Clawd on Desk 覆盖配置 | 确认 hooks 指向本仓库的 `clawd-hook.js`，非旧版 Desktop 路径 |
 
-Hook 脚本**静默失败**，不会影响 Claude Code 正常使用。
+Hook 脚本**静默失败**，不会影响 Claude Code / Cursor 正常使用。
 
 ## API 参考
 
 设备端接收：
 
 ```
-GET http://<device-ip>/status?s=idle|thinking|working|alert|offline
+GET http://<device-ip>/status?s=idle|thinking|working|done|alert|offline
 ```
 
 响应：`{"ok":1}`

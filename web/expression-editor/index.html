@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clawd Mochi 表情编辑器</title>
+  <style>
+    :root {
+      --bg: #1a1410;
+      --panel: #2a2018;
+      --border: #4a3828;
+      --orange: #e87830;
+      --orange-dim: #aa4818;
+      --text: #f0e6dc;
+      --muted: #9a8878;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #2a1810, #1a1410);
+    }
+    header h1 { margin: 0 0 6px; font-size: 1.4rem; color: var(--orange); }
+    header p { margin: 0; color: var(--muted); font-size: 0.9rem; max-width: 720px; }
+    main {
+      display: grid;
+      grid-template-columns: 280px 1fr 300px;
+      gap: 20px;
+      padding: 20px 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    @media (max-width: 960px) {
+      main { grid-template-columns: 1fr; }
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 0.75rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin: 10px 0 4px;
+    }
+    select, input[type="color"], input[type="range"], input[type="number"], textarea {
+      width: 100%;
+    }
+    select, input[type="number"] {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px;
+      border-radius: 6px;
+    }
+    input[type="range"] { accent-color: var(--orange); }
+    .row { display: flex; gap: 8px; align-items: center; }
+    .row span { font-size: 0.8rem; color: var(--muted); min-width: 36px; text-align: right; }
+    .preview-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    canvas {
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      border: 3px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+    .canvas-label { font-size: 0.8rem; color: var(--muted); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; justify-content: center; }
+    button {
+      background: var(--orange-dim);
+      border: 1px solid var(--orange);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button:hover { background: var(--orange); color: #1a1008; }
+    button.secondary { background: transparent; border-color: var(--border); }
+    textarea {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: #c8b8a8;
+      font-family: "Cascadia Code", "Consolas", monospace;
+      font-size: 0.72rem;
+      padding: 10px;
+      border-radius: 6px;
+      resize: vertical;
+      min-height: 160px;
+    }
+    .how-it-works {
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .how-it-works code {
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--orange);
+    }
+    .how-it-works ul { padding-left: 18px; margin: 8px 0; }
+    .how-it-works li { margin: 4px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Clawd Mochi 表情编辑器</h1>
+    <p>在浏览器里预览与固件相同的 240×240 像素表情逻辑，调节参数并导出 JSON / C++ 常量。打开本文件即可使用，无需服务器。</p>
+  </header>
+
+  <main>
+    <aside class="panel">
+      <h2>表情类型</h2>
+      <label for="exprType">当前帧</label>
+      <select id="exprType">
+        <option value="normal">普通眼 (fillRect)</option>
+        <option value="blink">普通眼 · 眨眼</option>
+        <option value="squish-open">眯眼 squish · 睁开</option>
+        <option value="squish-closed">眯眼 squish · 闭合</option>
+        <option value="sleepy">sleepy · 半闭眼 + Z</option>
+        <option value="heart">爱心眼</option>
+        <option value="happy">开心弧眼</option>
+        <option value="happy-stars">开心 + 星星</option>
+        <option value="scan">Scan 收窄眼</option>
+      </select>
+
+      <h2 style="margin-top:16px">Monitor 动画</h2>
+      <label for="animMode">动画模式</label>
+      <select id="animMode">
+        <option value="static">静态（手动选帧）</option>
+        <option value="idle">idle 轮播</option>
+        <option value="thinking">thinking 眯眼</option>
+        <option value="working">working 扫视</option>
+      </select>
+      <label for="phase">动画相位 <span id="phaseVal">0</span></label>
+      <input type="range" id="phase" min="0" max="80" value="0">
+      <div class="toolbar" style="margin-top:10px">
+        <button type="button" id="btnPlay">▶ 播放</button>
+        <button type="button" class="secondary" id="btnReset">重置默认</button>
+      </div>
+
+      <h2 style="margin-top:16px">眼睛几何</h2>
+      <label>EYE_W <span id="v-eyeW">30</span></label>
+      <input type="range" id="eyeW" min="10" max="50" value="30">
+      <label>EYE_H <span id="v-eyeH">60</span></label>
+      <input type="range" id="eyeH" min="20" max="80" value="60">
+      <label>EYE_GAP <span id="v-eyeGap">120</span></label>
+      <input type="range" id="eyeGap" min="40" max="160" value="120">
+      <label>EYE_OY（上移） <span id="v-eyeOy">40</span></label>
+      <input type="range" id="eyeOy" min="0" max="80" value="40">
+      <label>水平偏移 ox <span id="v-ox">0</span></label>
+      <input type="range" id="ox" min="-30" max="30" value="0">
+      <label>SCAN_EYE_W <span id="v-scanEyeW">20</span></label>
+      <input type="range" id="scanEyeW" min="10" max="40" value="20">
+
+      <h2 style="margin-top:16px">颜色</h2>
+      <label>背景 animBgColor</label>
+      <input type="color" id="bgColor" value="#aa4818">
+      <label>眼睛/线条</label>
+      <input type="color" id="eyeColor" value="#000000">
+    </aside>
+
+    <section class="panel preview-wrap">
+      <canvas id="c" width="240" height="240" style="width:360px;height:360px"></canvas>
+      <div class="canvas-label">240 × 240 · 与 ST7789 屏幕同分辨率</div>
+      <div class="toolbar">
+        <button type="button" id="btnExportJson">复制 JSON</button>
+        <button type="button" id="btnExportCpp">复制 C++ 常量</button>
+        <button type="button" class="secondary" id="btnImport">导入 JSON</button>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>固件怎么画表情？</h2>
+      <div class="how-it-works">
+        <ul>
+          <li><code>fillRect</code> — 普通眼、sleepy 半眼、scan 窄眼</li>
+          <li><code>drawLine</code> × N — squish 的 <code>&gt; &lt;</code> chevron</li>
+          <li>5×5 位图 — 爱心眼 <code>HEART5[]</code></li>
+          <li>两段斜线 — 开心弧 <code>drawHappyArc</code></li>
+          <li><code>animPhase</code> + tick — Monitor 非阻塞动画</li>
+        </ul>
+        <p>眼睛位置由 <code>eyeLX/RX(ox)</code>、<code>eyeY()</code> 根据 EYE_W/H/GAP/OY 算出，左右对称。</p>
+      </div>
+
+      <h2 style="margin-top:16px">导出</h2>
+      <textarea id="exportBox" readonly></textarea>
+    </aside>
+  </main>
+
+  <script>
+    const DISP_W = 240, DISP_H = 240;
+    const LOOK = [-14, -7, 0, 7, 14, 7, 0, -7];
+    const SWAY = [-6, -3, 0, 3, 6, 3, 0, -3];
+    const SCAN = [-28,-22,-16,-10,-4,4,10,16,22,28,22,16,10,4,-4];
+    const HEART5 = [0b01010, 0b11111, 0b11111, 0b01110, 0b00100];
+
+    const cfg = {
+      eyeW: 30, eyeH: 60, eyeGap: 120, eyeOx: 0, eyeOy: 40,
+      scanEyeW: 20, bgColor: '#aa4818', eyeColor: '#000000'
+    };
+
+    let animMode = 'static', phase = 0, playing = false, playId = null;
+
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+
+    function eyeY() { return (DISP_H - cfg.eyeH) / 2 - cfg.eyeOy; }
+    function eyeCY() { return eyeY() + cfg.eyeH / 2; }
+    function eyeLX(ox) {
+      return (DISP_W - (cfg.eyeW * 2 + cfg.eyeGap)) / 2 + cfg.eyeOx + ox;
+    }
+    function eyeRX(ox) { return eyeLX(ox) + cfg.eyeW + cfg.eyeGap; }
+    function scanEyeLX(ox) {
+      return (DISP_W - (cfg.scanEyeW * 2 + cfg.eyeGap)) / 2 + cfg.eyeOx + ox;
+    }
+    function scanEyeRX(ox) { return scanEyeLX(ox) + cfg.scanEyeW + cfg.eyeGap; }
+
+    function fillRect(x, y, w, h, col) {
+      ctx.fillStyle = col;
+      ctx.fillRect(Math.round(x), Math.round(y), w, h);
+    }
+
+    function drawLine(x1, y1, x2, y2, col) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+
+    function drawChevron(cx, cy, arm, reach, thk, rightFacing, col) {
+      for (let t = -thk; t <= thk; t++) {
+        if (rightFacing) {
+          drawLine(cx - reach/2, cy - arm + t, cx + reach/2, cy + t, col);
+          drawLine(cx + reach/2, cy + t, cx - reach/2, cy + arm + t, col);
+        } else {
+          drawLine(cx + reach/2, cy - arm + t, cx - reach/2, cy + t, col);
+          drawLine(cx - reach/2, cy + t, cx + reach/2, cy + arm + t, col);
+        }
+      }
+    }
+
+    function drawHeartAt(cx, cy, scale, col) {
+      for (let row = 0; row < 5; row++) {
+        for (let c = 0; c < 5; c++) {
+          if (HEART5[row] & (1 << (4 - c))) {
+            fillRect(cx + (c - 2) * scale, cy + (row - 2) * scale, scale, scale, col);
+          }
+        }
+      }
+    }
+
+    function drawHappyArc(cx, cy, w, col) {
+      const hw = w / 2;
+      for (let t = 0; t < 4; t++) {
+        drawLine(cx - hw, cy + t, cx, cy - hw/2 + t, col);
+        drawLine(cx, cy - hw/2 + t, cx + hw, cy + t, col);
+      }
+    }
+
+    function drawNormalEyes(ox, blink) {
+      const lx = eyeLX(ox), rx = eyeRX(ox), ey = eyeY();
+      if (!blink) {
+        fillRect(lx, ey, cfg.eyeW, cfg.eyeH, cfg.eyeColor);
+        fillRect(rx, ey, cfg.eyeW, cfg.eyeH, cfg.eyeColor);
+      } else {
+        const by = ey + cfg.eyeH / 2 - 3;
+        fillRect(lx, by, cfg.eyeW, 6, cfg.eyeColor);
+        fillRect(rx, by, cfg.eyeW, 6, cfg.eyeColor);
+      }
+    }
+
+    function drawSquishEyes(closed) {
+      const lx = eyeLX(0), rx = eyeRX(0), cy = eyeCY();
+      const arm = cfg.eyeH / 2, reach = cfg.eyeW / 2;
+      const lcx = lx + cfg.eyeW / 2, rcx = rx + cfg.eyeW / 2;
+      if (!closed) {
+        drawChevron(lcx, cy, arm, reach, 10, true, cfg.eyeColor);
+        drawChevron(rcx, cy, arm, reach, 10, false, cfg.eyeColor);
+      } else {
+        fillRect(lx, cy - 5, cfg.eyeW, 10, cfg.eyeColor);
+        fillRect(rx, cy - 5, cfg.eyeW, 10, cfg.eyeColor);
+      }
+    }
+
+    function drawSleepyEyes(zCount, breathOffset) {
+      const sleepyH = 20;
+      const lx = eyeLX(0), rx = eyeRX(0);
+      const top = eyeY() + breathOffset + (cfg.eyeH - sleepyH) / 2;
+      fillRect(lx, top, cfg.eyeW, sleepyH, cfg.eyeColor);
+      fillRect(rx, top, cfg.eyeW, sleepyH, cfg.eyeColor);
+      if (zCount > 0) {
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px monospace';
+        let z = 'Z';
+        if (zCount > 1) z += ' z';
+        if (zCount > 2) z += ' z';
+        ctx.fillText(z, DISP_W/2 - 24, eyeY() + cfg.eyeH + 22);
+      }
+    }
+
+    function drawHeartEyes(scale) {
+      const lcx = eyeLX(0) + cfg.eyeW / 2;
+      const rcx = eyeRX(0) + cfg.eyeW / 2;
+      const cy = eyeCY();
+      drawHeartAt(lcx, cy, scale, cfg.eyeColor);
+      drawHeartAt(rcx, cy, scale, cfg.eyeColor);
+    }
+
+    function drawHappyEyes(ox, stars) {
+      const lx = eyeLX(ox) + cfg.eyeW/2;
+      const rx = eyeRX(ox) + cfg.eyeW/2;
+      const cy = eyeCY() + 8;
+      drawHappyArc(lx, cy, 30, cfg.eyeColor);
+      drawHappyArc(rx, cy, 30, cfg.eyeColor);
+      if (stars) {
+        fillRect(lx - 18, cy - 28, 4, 4, '#ffffff');
+        fillRect(rx + 14, cy - 26, 3, 3, '#ffffff');
+        fillRect(DISP_W/2 - 2, eyeY() - 8, 4, 4, '#ffffff');
+      }
+    }
+
+    function drawScanEyes(ox) {
+      const lx = scanEyeLX(ox), rx = scanEyeRX(ox), ey = eyeY();
+      fillRect(lx, ey, cfg.scanEyeW, cfg.eyeH, cfg.eyeColor);
+      fillRect(rx, ey, cfg.scanEyeW, cfg.eyeH, cfg.eyeColor);
+    }
+
+    function resolveFrame(p) {
+      const mode = document.getElementById('animMode').value;
+      if (mode === 'static') {
+        return { type: document.getElementById('exprType').value, ox: +document.getElementById('ox').value };
+      }
+      if (mode === 'thinking') {
+        return { type: (p % 14 >= 7) ? 'squish-closed' : 'squish-open', ox: 0 };
+      }
+      if (mode === 'working') {
+        return { type: 'scan', ox: SCAN[p % SCAN.length] };
+      }
+      // idle cycle: normal -> sleepy -> heart -> happy (simplified rotation by phase blocks)
+      const block = Math.floor(p / 20) % 4;
+      if (block === 1) {
+        const breath = (p % 20 < 10) ? (p % 10) - 5 : 5 - (p % 10);
+        const z = 1 + Math.floor(p / 16) % 3;
+        return { type: 'sleepy', breath: breath / 2, z };
+      }
+      if (block === 2) {
+        return { type: 'heart', scale: (p % 10 < 5) ? 6 : 7 };
+      }
+      if (block === 3) {
+        return { type: (p % 20 === 10) ? 'happy-stars' : 'happy', ox: SWAY[p % 8] };
+      }
+      if (p % 40 === 36) return { type: 'blink', ox: 0 };
+      if (p % 40 === 37) return { type: 'normal', ox: 0 };
+      return { type: 'normal', ox: LOOK[Math.floor(p / 3) % 8] };
+    }
+
+    function render() {
+      ctx.fillStyle = cfg.bgColor;
+      ctx.fillRect(0, 0, DISP_W, DISP_H);
+
+      const frame = resolveFrame(phase);
+      switch (frame.type) {
+        case 'normal': drawNormalEyes(frame.ox || 0, false); break;
+        case 'blink': drawNormalEyes(0, true); break;
+        case 'squish-open': drawSquishEyes(false); break;
+        case 'squish-closed': drawSquishEyes(true); break;
+        case 'sleepy': drawSleepyEyes(frame.z ?? 3, frame.breath ?? 0); break;
+        case 'heart': drawHeartEyes(frame.scale ?? 6); break;
+        case 'happy': drawHappyEyes(frame.ox ?? 0, false); break;
+        case 'happy-stars': drawHappyEyes(frame.ox ?? 0, true); break;
+        case 'scan': drawScanEyes(frame.ox ?? 0); break;
+      }
+      updateExport();
+    }
+
+    function getConfigObject() {
+      return {
+        version: 1,
+        display: { width: DISP_W, height: DISP_H },
+        eyes: {
+          EYE_W: cfg.eyeW, EYE_H: cfg.eyeH, EYE_GAP: cfg.eyeGap,
+          EYE_OX: cfg.eyeOx, EYE_OY: cfg.eyeOy, SCAN_EYE_W: cfg.scanEyeW
+        },
+        colors: { animBgColor: cfg.bgColor, eyeColor: cfg.eyeColor },
+        preview: { animMode: document.getElementById('animMode').value, phase }
+      };
+    }
+
+    function updateExport() {
+      document.getElementById('exportBox').value = JSON.stringify(getConfigObject(), null, 2);
+    }
+
+    function toCppSnippet() {
+      return `// Clawd Mochi expression constants (from editor)
+#define EYE_W   ${cfg.eyeW}
+#define EYE_H   ${cfg.eyeH}
+#define EYE_GAP ${cfg.eyeGap}
+#define EYE_OX  ${cfg.eyeOx}
+#define EYE_OY  ${cfg.eyeOy}
+#define SCAN_EYE_W ${cfg.scanEyeW}
+// animBgColor: ${cfg.bgColor} -> use hexToRgb565() in firmware`;
+    }
+
+    function bindRange(id, key, labelId) {
+      const el = document.getElementById(id);
+      el.addEventListener('input', () => {
+        cfg[key] = +el.value;
+        if (labelId) document.getElementById(labelId).textContent = el.value;
+        render();
+      });
+    }
+
+    bindRange('eyeW', 'eyeW', 'v-eyeW');
+    bindRange('eyeH', 'eyeH', 'v-eyeH');
+    bindRange('eyeGap', 'eyeGap', 'v-eyeGap');
+    bindRange('eyeOy', 'eyeOy', 'v-eyeOy');
+    bindRange('scanEyeW', 'scanEyeW', 'v-scanEyeW');
+
+    document.getElementById('ox').addEventListener('input', e => {
+      document.getElementById('v-ox').textContent = e.target.value;
+      render();
+    });
+
+    document.getElementById('bgColor').addEventListener('input', e => {
+      cfg.bgColor = e.target.value;
+      render();
+    });
+    document.getElementById('eyeColor').addEventListener('input', e => {
+      cfg.eyeColor = e.target.value;
+      render();
+    });
+
+    ['exprType', 'animMode'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => {
+        if (id === 'animMode') animMode = document.getElementById('animMode').value;
+        render();
+      });
+    });
+
+    document.getElementById('phase').addEventListener('input', e => {
+      phase = +e.target.value;
+      document.getElementById('phaseVal').textContent = phase;
+      render();
+    });
+
+    document.getElementById('btnPlay').addEventListener('click', () => {
+      playing = !playing;
+      document.getElementById('btnPlay').textContent = playing ? '⏸ 暂停' : '▶ 播放';
+      if (playing) {
+        playId = setInterval(() => {
+          phase = (phase + 1) % 81;
+          document.getElementById('phase').value = phase;
+          document.getElementById('phaseVal').textContent = phase;
+          render();
+        }, 70);
+      } else {
+        clearInterval(playId);
+      }
+    });
+
+    function syncControlsFromCfg() {
+      const map = { eyeW:'eyeW', eyeH:'eyeH', eyeGap:'eyeGap', eyeOy:'eyeOy', scanEyeW:'scanEyeW' };
+      for (const [key, id] of Object.entries(map)) {
+        document.getElementById(id).value = cfg[key];
+        document.getElementById('v-' + id).textContent = cfg[key];
+      }
+      document.getElementById('bgColor').value = cfg.bgColor;
+      document.getElementById('eyeColor').value = cfg.eyeColor;
+    }
+
+    document.getElementById('btnReset').addEventListener('click', () => {
+      Object.assign(cfg, {
+        eyeW: 30, eyeH: 60, eyeGap: 120, eyeOx: 0, eyeOy: 40,
+        scanEyeW: 20, bgColor: '#aa4818', eyeColor: '#000000'
+      });
+      syncControlsFromCfg();
+      render();
+    });
+
+    document.getElementById('btnExportJson').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(JSON.stringify(getConfigObject(), null, 2));
+      alert('JSON 已复制');
+    });
+
+    document.getElementById('btnExportCpp').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(toCppSnippet());
+      alert('C++ 片段已复制，可粘贴到 clawd_mochi.ino 顶部 #define 区');
+    });
+
+    document.getElementById('btnImport').addEventListener('click', () => {
+      const raw = prompt('粘贴 JSON 配置');
+      if (!raw) return;
+      try {
+        const j = JSON.parse(raw);
+        if (j.eyes) {
+          cfg.eyeW = j.eyes.EYE_W ?? cfg.eyeW;
+          cfg.eyeH = j.eyes.EYE_H ?? cfg.eyeH;
+          cfg.eyeGap = j.eyes.EYE_GAP ?? cfg.eyeGap;
+          cfg.eyeOx = j.eyes.EYE_OX ?? cfg.eyeOx;
+          cfg.eyeOy = j.eyes.EYE_OY ?? cfg.eyeOy;
+          cfg.scanEyeW = j.eyes.SCAN_EYE_W ?? cfg.scanEyeW;
+        }
+        if (j.colors) {
+          cfg.bgColor = j.colors.animBgColor ?? cfg.bgColor;
+          cfg.eyeColor = j.colors.eyeColor ?? cfg.eyeColor;
+        }
+        syncControlsFromCfg();
+        render();
+      } catch (e) { alert('JSON 无效'); }
+    });
+
+    render();
+  </script>
+</body>
+</html>

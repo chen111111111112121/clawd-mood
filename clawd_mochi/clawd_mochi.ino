@@ -14,7 +14,7 @@
  *
  *   AP:  "ClaWD-Mochi"  pw: clawd1234  → http://192.168.4.1
  *   STA: configure via web portal (saved to flash)
- *   Monitor: GET http://<sta-ip>/status?s=idle|thinking|working|alert|offline
+ *   Monitor: GET http://<sta-ip>/status?s=idle|thinking|working|done|alert|offline
  * ╚══════════════════════════════════════════════════════════════╝
  */
 
@@ -77,13 +77,46 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 #define MON_ALERT    3
 #define MON_OFFLINE  4
 
+#define IDLE_NORMAL  0
+#define IDLE_SLEEPY  1
+#define IDLE_HEART   2
+#define IDLE_HAPPY   3
+
+#define SCAN_EYE_W   20
+#define IDLE_SWITCH_MIN_MS 15000
+#define IDLE_SWITCH_MAX_MS 45000
+
+const uint8_t IDLE_POOL[] = { IDLE_NORMAL, IDLE_SLEEPY, IDLE_HEART, IDLE_HAPPY };
+#define IDLE_POOL_SIZE 4
+
 uint8_t  currentView   = VIEW_EYES_NORMAL;
 uint8_t  monitorState  = MON_IDLE;
+uint8_t  currentIdleIndex = 0;
+uint8_t  currentIdleExpr  = IDLE_NORMAL;
+uint8_t  animPhase        = 0;
 unsigned long lastStatusMs = 0;
+unsigned long lastIdleSwitch = 0;
+unsigned long lastAnimTick   = 0;
+uint32_t nextIdleSwitchMs = 30000;
+
+#define EXPR_ZONE_Y  28
+#define EXPR_ZONE_H  185
+
+struct EyeRect { int16_t x, y, w, h; bool valid; };
+EyeRect prevEyeL = {0, 0, 0, 0, false};
+EyeRect prevEyeR = {0, 0, 0, 0, false};
+uint8_t lastRenderKey = 255;
+int16_t lastTickOx    = -999;
+bool    lastTickBlink = false;
+int16_t lastTickScanOx = -999;
+uint8_t lastTickSquishState = 255;
+uint8_t lastTickHeartScale   = 255;
+int16_t lastSleepyTop        = -999;
+uint8_t lastSleepyZ          = 255;
 bool     statusTimedOut  = false;
 bool     busy         = false;
 bool     backlightOn  = true;
-uint8_t  animSpeed    = 1;   // 1=slow(default) 2=normal 3=fast
+uint8_t  animSpeed    = 2;   // 1=slow 2=normal(default) 3=fast
 
 uint16_t animBgColor  = 0;   // background for eye/logo animations
 uint16_t drawBgColor  = 0;   // background for canvas
@@ -339,16 +372,76 @@ inline int16_t eyeRX(int16_t ox) { return eyeLX(ox) + EYE_W + EYE_GAP; }
 inline int16_t eyeY()            { return (DISP_H - EYE_H) / 2 - EYE_OY; }
 inline int16_t eyeCY()           { return eyeY() + EYE_H / 2; }
 
-void drawNormalEyes(int16_t ox = 0, bool blink = false) {
-  tft.fillScreen(animBgColor);
+uint8_t expressionRenderKey() {
+  return (uint8_t)(monitorState | (currentIdleExpr << 3));
+}
+
+void invalidateExpressionCanvas() {
+  lastRenderKey = 255;
+  prevEyeL.valid = false;
+  prevEyeR.valid = false;
+  lastTickOx = -999;
+  lastTickScanOx = -999;
+  lastTickSquishState = 255;
+  lastTickHeartScale = 255;
+  lastSleepyTop = -999;
+  lastSleepyZ = 255;
+}
+
+void ensureFullExpressionBg() {
+  const uint8_t key = expressionRenderKey();
+  if (key != lastRenderKey) {
+    tft.fillScreen(animBgColor);
+    lastRenderKey = key;
+    prevEyeL.valid = false;
+    prevEyeR.valid = false;
+    lastTickOx = -999;
+    lastTickScanOx = -999;
+    lastTickSquishState = 255;
+    lastTickHeartScale = 255;
+    lastSleepyTop = -999;
+    lastSleepyZ = 255;
+  }
+}
+
+void clearExpressionZone() {
+  tft.fillRect(0, EXPR_ZONE_Y, DISP_W, EXPR_ZONE_H, animBgColor);
+  prevEyeL.valid = false;
+  prevEyeR.valid = false;
+}
+
+void erasePrevEyeRects() {
+  if (prevEyeL.valid) {
+    tft.fillRect(prevEyeL.x - 3, prevEyeL.y - 3, prevEyeL.w + 6, prevEyeL.h + 6, animBgColor);
+    tft.fillRect(prevEyeR.x - 3, prevEyeR.y - 3, prevEyeR.w + 6, prevEyeR.h + 6, animBgColor);
+  }
+}
+
+void storePrevEyeRects(int16_t lx, int16_t rx, int16_t ey, int16_t w, int16_t h) {
+  prevEyeL = {lx, ey, w, h, true};
+  prevEyeR = {rx, ey, w, h, true};
+}
+
+void drawNormalEyes(int16_t ox = 0, bool blink = false, bool optimized = false) {
+  if (optimized) {
+    if (ox == lastTickOx && blink == lastTickBlink) return;
+    ensureFullExpressionBg();
+    erasePrevEyeRects();
+  } else {
+    tft.fillScreen(animBgColor);
+  }
   const int16_t lx = eyeLX(ox), rx = eyeRX(ox), ey = eyeY();
   if (!blink) {
     tft.fillRect(lx, ey, EYE_W, EYE_H, C_BLACK);
     tft.fillRect(rx, ey, EYE_W, EYE_H, C_BLACK);
+    if (optimized) storePrevEyeRects(lx, rx, ey, EYE_W, EYE_H);
   } else {
-    tft.fillRect(lx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
-    tft.fillRect(rx, ey + EYE_H / 2 - 3, EYE_W, 6, C_BLACK);
+    const int16_t by = ey + EYE_H / 2 - 3;
+    tft.fillRect(lx, by, EYE_W, 6, C_BLACK);
+    tft.fillRect(rx, by, EYE_W, 6, C_BLACK);
+    if (optimized) storePrevEyeRects(lx, rx, by, EYE_W, 6);
   }
+  if (optimized) { lastTickOx = ox; lastTickBlink = blink; }
 }
 
 void drawChevron(int16_t cx, int16_t cy, int16_t arm, int16_t reach,
@@ -364,8 +457,14 @@ void drawChevron(int16_t cx, int16_t cy, int16_t arm, int16_t reach,
   }
 }
 
-void drawSquishEyes(bool closed = false) {
-  tft.fillScreen(animBgColor);
+void drawSquishEyes(bool closed = false, bool optimized = false) {
+  if (optimized) {
+    if ((uint8_t)closed == lastTickSquishState) return;
+    ensureFullExpressionBg();
+    clearExpressionZone();
+  } else {
+    tft.fillScreen(animBgColor);
+  }
   const int16_t lx = eyeLX(0), rx = eyeRX(0), cy = eyeCY();
   const int16_t arm   = EYE_H / 2;
   const int16_t reach = EYE_W / 2;
@@ -378,6 +477,7 @@ void drawSquishEyes(bool closed = false) {
     tft.fillRect(lx, cy - 5, EYE_W, 10, C_BLACK);
     tft.fillRect(rx, cy - 5, EYE_W, 10, C_BLACK);
   }
+  if (optimized) lastTickSquishState = (uint8_t)closed;
 }
 
 void drawCodeView() {
@@ -390,6 +490,137 @@ void drawCodeView() {
   tft.setTextColor(C_WHITE);  tft.setTextSize(4);
   tft.setCursor((DISP_W - 96) / 2,  DISP_H / 2 + 8);  tft.print("Code");
   tft.fillRect((DISP_W - 96) / 2, DISP_H / 2 + 52, 96, 3, C_ORANGE);
+}
+
+// ── Extended idle / work expressions ───────────────────────────
+
+inline int16_t scanEyeLX(int16_t ox) {
+  return (DISP_W - (SCAN_EYE_W * 2 + EYE_GAP)) / 2 + EYE_OX + ox;
+}
+inline int16_t scanEyeRX(int16_t ox) { return scanEyeLX(ox) + SCAN_EYE_W + EYE_GAP; }
+
+void drawHeartAt(int16_t cx, int16_t cy, uint8_t scale, uint16_t col) {
+  static const uint8_t HEART5[5] = { 0b01010, 0b11111, 0b11111, 0b01110, 0b00100 };
+  for (int8_t row = 0; row < 5; row++) {
+    for (int8_t c = 0; c < 5; c++) {
+      if (HEART5[row] & (1 << (4 - c))) {
+        tft.fillRect(cx + (c - 2) * scale, cy + (row - 2) * scale, scale, scale, col);
+      }
+    }
+  }
+}
+
+void drawHappyArc(int16_t cx, int16_t cy, int16_t w, uint16_t col) {
+  const int16_t hw = w / 2;
+  for (uint8_t t = 0; t < 4; t++) {
+    tft.drawLine(cx - hw, cy + t,     cx,     cy - hw / 2 + t, col);
+    tft.drawLine(cx,     cy - hw / 2 + t, cx + hw, cy + t,     col);
+  }
+}
+
+void drawSleepyEyes(uint8_t zCount = 3, int16_t breathOffset = 0, bool optimized = false) {
+  const int16_t sleepyH = 20;
+  const int16_t lx = eyeLX(0), rx = eyeRX(0);
+  const int16_t top = eyeY() + breathOffset + (EYE_H - sleepyH) / 2;
+  const int16_t zBaseY = eyeY() + EYE_H + 10;
+
+  if (optimized) {
+    if (top == lastSleepyTop && zCount == lastSleepyZ) return;
+    ensureFullExpressionBg();
+    erasePrevEyeRects();
+    if (zCount != lastSleepyZ) {
+      tft.fillRect(DISP_W / 2 - 32, zBaseY - 2, 64, 20, animBgColor);
+    }
+  } else {
+    tft.fillScreen(animBgColor);
+  }
+
+  tft.fillRect(lx, top, EYE_W, sleepyH, C_BLACK);
+  tft.fillRect(rx, top, EYE_W, sleepyH, C_BLACK);
+
+  if (optimized) {
+    storePrevEyeRects(lx, rx, top, EYE_W, sleepyH);
+    lastSleepyTop = top;
+    lastSleepyZ = zCount;
+  }
+
+  if (zCount > 0) {
+    if (optimized) {
+      tft.fillRect(DISP_W / 2 - 32, zBaseY - 2, 64, 20, animBgColor);
+    }
+    tft.setTextColor(C_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(DISP_W / 2 - 24, zBaseY);
+    tft.print("Z");
+    if (zCount > 1) tft.print(" z");
+    if (zCount > 2) tft.print(" z");
+  }
+}
+
+void drawHeartEyes(uint8_t scale = 6, bool optimized = false) {
+  if (optimized) {
+    if (scale == lastTickHeartScale) return;
+    ensureFullExpressionBg();
+    clearExpressionZone();
+  } else {
+    tft.fillScreen(animBgColor);
+  }
+  const int16_t lcx = eyeLX(0) + EYE_W / 2;
+  const int16_t rcx = eyeRX(0) + EYE_W / 2;
+  const int16_t cy  = eyeCY();
+  drawHeartAt(lcx, cy, scale, C_BLACK);
+  drawHeartAt(rcx, cy, scale, C_BLACK);
+  if (optimized) lastTickHeartScale = scale;
+}
+
+void drawHappyEyes(int16_t ox = 0, bool showStars = false, bool optimized = false) {
+  if (optimized) {
+    ensureFullExpressionBg();
+    clearExpressionZone();
+  } else {
+    tft.fillScreen(animBgColor);
+  }
+  const int16_t lx = eyeLX(ox) + EYE_W / 2;
+  const int16_t rx = eyeRX(ox) + EYE_W / 2;
+  const int16_t cy = eyeCY() + 8;
+  drawHappyArc(lx, cy, 30, C_BLACK);
+  drawHappyArc(rx, cy, 30, C_BLACK);
+  if (showStars) {
+    tft.fillRect(lx - 18, cy - 28, 4, 4, C_WHITE);
+    tft.fillRect(rx + 14, cy - 26, 3, 3, C_WHITE);
+    tft.fillRect(DISP_W / 2 - 2, eyeY() - 8, 4, 4, C_WHITE);
+  }
+}
+
+void drawScanEyes(int16_t ox = 0, bool optimized = false) {
+  if (optimized) {
+    if (ox == lastTickScanOx) return;
+    ensureFullExpressionBg();
+    erasePrevEyeRects();
+  } else {
+    tft.fillScreen(animBgColor);
+  }
+  const int16_t lx = scanEyeLX(ox), rx = scanEyeRX(ox), ey = eyeY();
+  tft.fillRect(lx, ey, SCAN_EYE_W, EYE_H, C_BLACK);
+  tft.fillRect(rx, ey, SCAN_EYE_W, EYE_H, C_BLACK);
+  if (optimized) {
+    storePrevEyeRects(lx, rx, ey, SCAN_EYE_W, EYE_H);
+    lastTickScanOx = ox;
+  }
+}
+
+void drawSparkles(uint8_t count = 10) {
+  for (uint8_t i = 0; i < count; i++) {
+    const int16_t x = random(4, DISP_W - 4);
+    const int16_t y = random(4, DISP_H - 4);
+    const uint8_t sz = random(2, 5);
+    const uint16_t col = (random(2) == 0) ? C_WHITE : C_ORANGE;
+    tft.fillRect(x, y, sz, sz, col);
+    if (sz > 2) {
+      tft.drawPixel(x + sz, y + sz / 2, col);
+      tft.drawPixel(x + sz / 2, y + sz, col);
+    }
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -541,7 +772,211 @@ void animLogoReveal() {
   busy = false;
 }
 
+void resetIdleRotation() {
+  lastIdleSwitch = millis();
+  nextIdleSwitchMs = IDLE_SWITCH_MIN_MS +
+    random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
+}
+
+void resetMonitorAnim() {
+  animPhase = 0;
+  lastAnimTick = 0;
+  invalidateExpressionCanvas();
+}
+
+int animTickMs() {
+  if (animSpeed == 3) return 45;
+  if (animSpeed == 1) return 110;
+  return 70;
+}
+
+void tickIdleAnimation() {
+  currentIdleExpr = IDLE_POOL[currentIdleIndex];
+  switch (currentIdleExpr) {
+    case IDLE_SLEEPY: {
+      const int8_t breath = (animPhase % 20 < 10)
+        ? (int8_t)(animPhase % 10) - 5 : 5 - (int8_t)(animPhase % 10);
+      const uint8_t z = 1 + (animPhase / 16) % 3;
+      drawSleepyEyes(z, breath / 2, true);
+      break;
+    }
+    case IDLE_HEART:
+      drawHeartEyes((animPhase % 10 < 5) ? 6 : 7, true);
+      break;
+    case IDLE_HAPPY: {
+      static const int16_t sway[] = {-6, -3, 0, 3, 6, 3, 0, -3};
+      drawHappyEyes(sway[animPhase % 8], animPhase % 20 == 10, true);
+      break;
+    }
+    default: {
+      static const int16_t look[] = {-14, -7, 0, 7, 14, 7, 0, -7};
+      if (animPhase % 40 == 36)      drawNormalEyes(0, true, true);
+      else if (animPhase % 40 == 37) drawNormalEyes(0, false, true);
+      else drawNormalEyes(look[(animPhase / 3) % 8], false, true);
+      break;
+    }
+  }
+}
+
+void tickThinkingAnimation() {
+  drawSquishEyes(animPhase % 14 >= 7, true);
+}
+
+void tickWorkingAnimation() {
+  static const int16_t scan[] = {
+    -28, -22, -16, -10, -4, 4, 10, 16, 22, 28,
+     22,  16,  10,   4, -4
+  };
+  drawScanEyes(scan[animPhase % 15], true);
+}
+
+void tickMonitorAnimation() {
+  if (currentView != VIEW_MONITOR) return;
+  if (busy) return;
+  if (monitorState == MON_OFFLINE || monitorState == MON_ALERT) return;
+
+  const unsigned long now = millis();
+  if (lastAnimTick != 0 && now - lastAnimTick < (unsigned long)animTickMs()) return;
+  lastAnimTick = now;
+  animPhase++;
+
+  switch (monitorState) {
+    case MON_IDLE:      tickIdleAnimation();      break;
+    case MON_THINKING:  tickThinkingAnimation();  break;
+    case MON_WORKING:   tickWorkingAnimation();   break;
+    default: break;
+  }
+}
+
+void animSleepyEyes() {
+  busy = true;
+  for (uint8_t r = 0; r < 3; r++) {
+    for (int8_t b = 0; b >= -4; b--) {
+      drawSleepyEyes(0, b);
+      delay(speedMs(120));
+      server.handleClient();
+    }
+    for (int8_t b = -4; b <= 0; b++) {
+      drawSleepyEyes(0, b);
+      delay(speedMs(120));
+      server.handleClient();
+    }
+  }
+  for (uint8_t z = 1; z <= 3; z++) {
+    drawSleepyEyes(z, 0);
+    delay(speedMs(200));
+    server.handleClient();
+  }
+  busy = false;
+}
+
+void animHeartEyes() {
+  busy = true;
+  const uint8_t scales[] = {6, 7, 6, 7, 6};
+  for (uint8_t i = 0; i < 5; i++) {
+    drawHeartEyes(scales[i]);
+    delay(speedMs(180));
+    server.handleClient();
+  }
+  drawHeartEyes(6);
+  busy = false;
+}
+
+void animHappyEyes() {
+  busy = true;
+  const int16_t offs[] = {-6, 6, -4, 4, 0};
+  for (uint8_t i = 0; i < 5; i++) {
+    drawHappyEyes(offs[i], i == 2);
+    delay(speedMs(140));
+    server.handleClient();
+  }
+  drawHappyEyes(0, false);
+  busy = false;
+}
+
+void animScanEyes() {
+  busy = true;
+  const int16_t scan[] = {-28, 28, -28, 28, -20, 20, -12, 12, 0};
+  for (uint8_t i = 0; i < 9; i++) {
+    drawScanEyes(scan[i]);
+    delay(speedMs(80));
+    server.handleClient();
+  }
+  drawScanEyes(0);
+  busy = false;
+}
+
+void animDoneSparkle() {
+  busy = true;
+  drawHappyEyes(0, false);
+  delay(speedMs(200));
+  for (uint8_t f = 0; f < 4; f++) {
+    drawHappyEyes(0, f % 2 == 1);
+    drawSparkles(8 + random(5));
+    delay(speedMs(250));
+    server.handleClient();
+  }
+  drawHappyEyes(0, true);
+  delay(speedMs(2000));
+  busy = false;
+  monitorState = MON_IDLE;
+  currentIdleExpr = IDLE_NORMAL;
+  currentIdleIndex = 0;
+  resetIdleRotation();
+  resetMonitorAnim();
+}
+
+void playIdleExpression(uint8_t expr) {
+  currentIdleExpr = expr;
+  switch (expr) {
+    case IDLE_SLEEPY: animSleepyEyes(); break;
+    case IDLE_HEART:  animHeartEyes();  break;
+    case IDLE_HAPPY:  animHappyEyes();  break;
+    default:          animNormalEyes(); break;
+  }
+}
+
+void drawIdleStatic(uint8_t expr) {
+  switch (expr) {
+    case IDLE_SLEEPY: drawSleepyEyes(3, 0); break;
+    case IDLE_HEART:  drawHeartEyes(6);     break;
+    case IDLE_HAPPY:  drawHappyEyes(0, false); break;
+    default:          drawNormalEyes();     break;
+  }
+}
+
+void checkIdleRotation() {
+  if (currentView != VIEW_MONITOR) return;
+  if (monitorState != MON_IDLE) return;
+  if (busy) return;
+  if (lastIdleSwitch == 0) {
+    resetIdleRotation();
+    return;
+  }
+  if (millis() - lastIdleSwitch < nextIdleSwitchMs) return;
+
+  currentIdleIndex = (currentIdleIndex + 1) % IDLE_POOL_SIZE;
+  currentIdleExpr = IDLE_POOL[currentIdleIndex];
+  animPhase = 0;
+  invalidateExpressionCanvas();
+  lastIdleSwitch = millis();
+  nextIdleSwitchMs = IDLE_SWITCH_MIN_MS +
+    random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
+}
+
 void applyMonitorState(const String& s) {
+  if (s == "done") {
+    lastStatusMs = millis();
+    statusTimedOut = false;
+    if (currentView == VIEW_DRAW) return;
+    if (currentView == VIEW_CODE && termMode) return;
+    currentView = VIEW_MONITOR;
+    termMode = false;
+    if (!backlightOn) setBacklight(true);
+    animDoneSparkle();
+    return;
+  }
+
   if (s == "idle")           monitorState = MON_IDLE;
   else if (s == "thinking")  monitorState = MON_THINKING;
   else if (s == "working")   monitorState = MON_WORKING;
@@ -561,15 +996,19 @@ void applyMonitorState(const String& s) {
   switch (monitorState) {
     case MON_IDLE:
       if (!backlightOn) setBacklight(true);
-      drawNormalEyes();
+      resetIdleRotation();
+      resetMonitorAnim();
+      tickMonitorAnimation();
       break;
     case MON_THINKING:
       if (!backlightOn) setBacklight(true);
-      drawSquishEyes(false);
+      resetMonitorAnim();
+      tickMonitorAnimation();
       break;
     case MON_WORKING:
       if (!backlightOn) setBacklight(true);
-      drawCodeView();
+      resetMonitorAnim();
+      tickMonitorAnimation();
       break;
     case MON_ALERT:
       if (!backlightOn) setBacklight(true);
@@ -586,12 +1025,9 @@ void enterMonitorView() {
   currentView = VIEW_MONITOR;
   termMode = false;
   statusTimedOut = false;
-  switch (monitorState) {
-    case MON_THINKING: drawSquishEyes(false); break;
-    case MON_WORKING:  drawCodeView(); break;
-    case MON_OFFLINE:  drawNormalEyes(); break;
-    default:           drawNormalEyes(); break;
-  }
+  resetMonitorAnim();
+  if (monitorState == MON_IDLE) resetIdleRotation();
+  tickMonitorAnimation();
 }
 
 void checkStatusTimeout() {
@@ -604,7 +1040,8 @@ void checkStatusTimeout() {
   statusTimedOut = true;
   monitorState = MON_IDLE;
   if (!backlightOn) setBacklight(true);
-  drawNormalEyes();
+  resetIdleRotation();
+  resetMonitorAnim();
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -805,8 +1242,8 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
 <div class="sec">// speed</div>
 <div class="speed-row">
   <span class="sl">slow</span>
-  <input type="range" id="spd" min="1" max="3" value="1" step="1" oninput="setSpeed(this.value)">
-  <span class="sv" id="spdV">slow</span>
+  <input type="range" id="spd" min="1" max="3" value="2" step="1" oninput="setSpeed(this.value)">
+  <span class="sv" id="spdV">normal</span>
 </div>
 
 <div class="ctrl">
@@ -1147,7 +1584,7 @@ async function clearAll() {
   try {
     const r = await fetch('/state');
     const j = await r.json();
-    const spd = j.speed || 1;
+    const spd = j.speed || 2;
     document.getElementById('spd').value = spd;
     document.getElementById('spdV').textContent = spdLabels[spd];
     if (j.bl === false) {
@@ -1234,8 +1671,8 @@ void routeRedraw() {
     case VIEW_MONITOR:
       switch (monitorState) {
         case MON_THINKING: drawSquishEyes(false); break;
-        case MON_WORKING:  drawCodeView(); break;
-        default:           drawNormalEyes(); break;
+        case MON_WORKING:  drawScanEyes(0); break;
+        default:           drawIdleStatic(IDLE_POOL[currentIdleIndex]); break;
       }
       break;
   }
@@ -1360,13 +1797,14 @@ void routeNotFound() { server.send(404, "text/plain", "not found"); }
 
 void setup() {
   Serial.begin(115200);
+  randomSeed(esp_random());
 
   pinMode(TFT_BLK, OUTPUT);
   setBacklight(true);
 
   SPI.begin(8, -1, 9, TFT_CS);    // SCK=8, MOSI=9
   tft.init(240, 240);
-  tft.setSPISpeed(40000000);
+  tft.setSPISpeed(62000000);
   tft.setRotation(1);
   initColours();
 
@@ -1417,6 +1855,8 @@ void setup() {
 void loop() {
   server.handleClient();
   checkStatusTimeout();
+  checkIdleRotation();
+  tickMonitorAnimation();
 
   static unsigned long lastWifiCheck = 0;
   if (millis() - lastWifiCheck > 30000) {

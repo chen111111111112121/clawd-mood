@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "subagentStart": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ],
+    "stop": [
+      {
+        "command": "cmd /d /s /c \"\"D:\\nodejs\\node.exe\" \"D:/Desktop/AI/clawd-micho/clawd-mochi/hook/clawd-hook.js\"\"",
+        "timeout": 5
+      }
+    ]
+  }
+}

@@ -1,236 +1,188 @@
-<!-- LOGO -->
-<p align="center">
-  <img src="pics/clawd_mochi_banner.png" alt="Clawd Mochi Logo" width="700"/>
-</p>
+# Clawd Mochi
 
-# Clawd Mochi 🦀🤖
+ESP32-C3 + ST7789 240×240 桌面伴侣：显示 Clawd 像素表情，支持手机 Web 控制，并可通过 **Cursor / Claude Code Hook** 实时反映 AI 编程状态。
 
-A physical desk companion inspired by **Clawd** — the pixel-crab mascot of Claude Code by Anthropic. An ESP32-C3 drives a 1.54" color TFT display and hosts a mobile web controller — no app, no internet, no cloud required.
+> 独立粉丝项目，与 Anthropic 无官方关联。「Claude」「Clawd」为 Anthropic 商标。
 
-**Cost: ~$6–8 · Build time: ~1 hour · Skill level: Beginner**
-
-📦 3D printable case on MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
+3D 外壳：[MakerWorld - Clawd Mochi](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot)
 
 ---
 
-> ⚠️ This is an independent fan project. It is not affiliated with, sponsored by, or endorsed by Anthropic. "Claude" and "Clawd" are trademarks of Anthropic.
+## 功能概览
+
+| 模式 | 说明 |
+|------|------|
+| **手动控制** | 连设备热点 `ClaWD-Mochi`，浏览器打开控制器，切换表情 / 终端 / 画布 |
+| **Monitor 监测** | PC 上 Cursor 或 Claude Code 通过 Hook 推送状态，屏幕自动切换动画 |
+
+Monitor 模式下 PC **无需**连设备热点，只要与设备在同一局域网即可。
+
+### 手动模式（Web 控制器按钮）
+
+- **普通眼** — 方块眼 wiggle / 眨眼
+- **眯眼** — `> <` squish 开合
+- **Claude Code** — 显示文字界面 + 终端（仅手动切换）
+- **画布** — 手机实时涂鸦
+
+### Monitor 模式（Hook 自动推送）
+
+- **Monitor 状态**：`idle` / `thinking` / `working` / `done` / `alert` / `offline`
+- **idle**：普通眼 / sleepy / 爱心 / 开心 轮播（15–45s 随机切换）
+- **thinking**：眯眼 squish 开合动画
+- **working**：**收窄双眼（Scan）左右快速扫视** — 不是 Claude Code 文字界面
+- **done**：闪光庆祝后自动回到 idle
+- **WiFi 双模**：AP 热点常开 + STA 连家里 WiFi（凭据写入 Flash）
 
 ---
 
-<p align="center">
-  <img src="pics/clawd_mochi_3_4.jpeg" alt="Assembled Clawd Mochi on a desk" width="500"/>
-  &nbsp;
-  <img src="pics/clawd_mochi_claude_code.jpeg" alt="Claude Code view" width="500"/>
-</p>
+## 快速开始
 
-## What it does
+### 1. 硬件接线
 
-Clawd Mochi sits on your desk and shows animated expressions on a small color display. You control it from any phone or browser by connecting to its built-in WiFi hotspot:
+> VCC 必须接 **3.3V**，禁止 5V。
 
-- **Normal eyes** — pixel-art square eyes with wiggle and blink animations
-- **Squish eyes** — `> <` happy squint with open/close animation
-- **Claude Code** — displays "Claude Code" with an interactive terminal
-- **Canvas** — draw anything on the display from your phone in real time
+| 屏幕 | ESP32-C3 GPIO |
+|------|---------------|
+| VCC | 3V3 |
+| GND | GND |
+| SDA (MOSI) | **GPIO 9** |
+| SCL (SCK) | **GPIO 8** |
+| RES | GPIO 2 |
+| DC | GPIO 1 |
+| CS | GPIO 4 |
+| BL | GPIO 3 |
 
----
+### 2. 烧录固件
 
-## Parts list
+1. 安装 [Arduino IDE 2.x](https://www.arduino.cc/en/software)
+2. 添加 ESP32 开发板支持（Espressif `esp32`）
+3. 安装库：`Adafruit GFX Library`、`Adafruit ST7735 and ST7789 Library`
+4. 开发板：**ESP32C3 Dev Module**，**USB CDC On Boot: Enabled**
+5. 打开 `clawd_mochi/clawd_mochi.ino` 并上传
 
-| Part                | Spec                             | ~Price |
-| ------------------- | -------------------------------- | ------ |
-| ESP32-C3 Super Mini | microcontroller with WiFi        | ~$2.50 |
-| ST7789 1.54" TFT    | 240×240 SPI color display        | ~$3.00 |
-| 8 short wires       | 8–10 cm Dupont / jumper wires    | ~$0.50 |
-| 2× M2×6mm screws    | to mount display bezel           | ~$0.10 |
-| Double-sided tape   | to secure components inside case | ~$0.10 |
-| USB-C cable         | for power                        | —      |
-| 3D printed case     | PLA or PETG, ~30g                | ~$0.50 |
+### 3. 配置 WiFi
 
-**Total: ~$7–8**
+1. 手机连热点 **`ClaWD-Mochi`** / 密码 **`clawd1234`**
+2. 浏览器打开 **`http://192.168.4.1`**
+3. 在 **wifi setup** 填入家里 WiFi，保存
+4. 记下屏幕或页面上显示的 **局域网 IP**
 
----
+### 4. 配置 PC Hook（Cursor + Claude Code，一键安装）
 
-## Wiring
+在 `hook` 目录运行（将 IP 换成你的设备地址）：
 
-> ⚠️ Connect VCC to **3.3V only** — never 5V. Use GPIO 8 and 10 for SPI (hardware SPI, fast). Do not use GPIO 6/7 for SPI.
-
-| Display pin | ESP32-C3 GPIO  | Wire color (suggested) |
-| ----------- | -------------- | ---------------------- |
-| VCC         | 3V3            | Red                    |
-| GND         | GND            | Black                  |
-| SDA         | GPIO 10 (MOSI) | Orange                 |
-| SCL         | GPIO 8 (SCK)   | Green                  |
-| RES         | GPIO 2         | Purple                 |
-| DC          | GPIO 1         | Blue                   |
-| CS          | GPIO 4         | White                  |
-| BL          | GPIO 3         | Yellow                 |
-
----
-
-## Software setup
-
-### Step 1 — Install Arduino IDE
-
-Download [Arduino IDE 2.x](https://www.arduino.cc/en/software) and install it.
-
-### Step 2 — Add ESP32 board support
-
-1. Open Arduino IDE → **File → Preferences**
-2. In "Additional boards manager URLs" paste:
-   ```
-   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-   ```
-3. Go to **Tools → Board → Boards Manager**, search `esp32`, install **"esp32 by Espressif Systems"**
-
-### Step 3 — Install libraries
-
-Go to **Tools → Library Manager** and install both:
-
-- `Adafruit GFX Library`
-- `Adafruit ST7735 and ST7789 Library`
-
-### Step 4 — Configure board settings
-
-Go to **Tools** and set:
-
-| Setting         | Value                   |
-| --------------- | ----------------------- |
-| Board           | ESP32C3 Dev Module      |
-| USB CDC On Boot | **Enabled** ← important |
-| CPU Frequency   | 160 MHz                 |
-| Upload Speed    | 921600                  |
-
-### Step 5 — Upload the sketch
-
-1. Clone or download this repo
-2. Open `clawd_mochi/clawd_mochi.ino` in Arduino IDE
-3. Connect the ESP32 via USB-C
-4. Select the correct port under **Tools → Port**
-5. Click **Upload** (→ arrow button)
-6. Wait for "Hard resetting via RTS pin..." — this means success
-
----
-
-## How to use it
-
-### Connect and open the controller
-
-1. Power the ESP32 via USB-C (any USB charger or power bank)
-2. Wait ~3 seconds for the boot animation to finish
-3. On your phone or computer, go to **WiFi settings**
-4. Connect to the network: **`ClaWD-Mochi`** · password: **`clawd1234`**
-5. Open a browser and go to **`http://192.168.4.1`**
-
-You should see the web controller:
-
-<img src="pics/clawd_mochi_webpage.jpeg" alt="Webpage view" width="500"/>
-
-### Controller features
-
-| Button / control   | What it does                                    |
-| ------------------ | ----------------------------------------------- |
-| Normal eyes        | Plays wiggle + blink animation                  |
-| Squish eyes        | Plays open/close animation                      |
-| Claude Code        | Shows code display, opens terminal              |
-| Canvas             | Enter drawing mode — draw on display from phone |
-| Speed slider       | Controls animation speed (slow / normal / fast) |
-| Background color   | Changes background color of all views           |
-| Pen color          | Sets drawing color for canvas                   |
-| Display on/off     | Toggles the backlight                           |
-| ✓ done (in canvas) | Exits canvas mode                               |
-
----
-
-## 3D case
-
-The electronics case (body + back) is in the `clawd_mochi` model folder:
-
-| File                                                                                 | Description                               |
-| ------------------------------------------------------------------------------------ | ----------------------------------------- |
-| [`./models/clawd_mochi/clawd_mochi_v1.stl`](./models/clawd_mochi/clawd_mochi_v1.stl) | Main case layout with body and back parts |
-
-### Print settings
-
-| Setting      | Value                               |
-| ------------ | ----------------------------------- |
-| Material     | PLA or PETG                         |
-| Layer height | 0.15–0.20 mm                        |
-| Infill       | 15% gyroid                          |
-| Supports     | Yes — for display window overhang   |
-| Orientation  | Face-down, flat back on build plate |
-
-Suggested colors: orange PLA for body, matte black for back plate.
-
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000](https://makerworld.com/en/models/2559505-clawd-mochi-physical-claude-code-mascot#profileId-2820000)
-
-### 3D Clawd (no electronics)
-
-If you just want a display piece, use the separate 3D Clawd model (no screen or electronics cutouts).
-
-<img src="pics/clawd_3D_squished_eyes_4_3.png" alt="3D printed Clawd model with squished eyes" width="500"/>
-
-Model files:
-
-| File | Description |
-| ---- | ----------- |
-| [`./models/clawd_3d/clawd_3D_no_AMS.stl`](./models/clawd_3d/clawd_3D_no_AMS.stl) | Original Clawd 3D model |
-| [`./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl`](./models/clawd_3d_squished_eyes/clawd_3D_squished_eyes_no_AMS.stl) | Squished eyes variant |
-
-You can also download the models from MakerWorld: [https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183](https://makerworld.com/en/models/2576503-clawd-claude-code-mascot#profileId-2841183)
-
----
-
-## Assembly tips
-
-1. Print the case file (body + back) and test-fit the display before gluing anything
-2. Thread the 8 wires through the back plate slot before soldering
-3. Use double-sided tape to fix the ESP32 against the inside of the back plate
-4. Secure the display with 2× M2×6mm screws through the bezel holes
-5. Route the USB-C cable through the back plate slot and snap the back on
-
----
-
-## Customisation
-
-### Eye size and position
-
-Edit these constants near the top of `clawd_mochi.ino`:
-
-```cpp
-#define EYE_W   30    // eye width in pixels
-#define EYE_H   60    // eye height in pixels
-#define EYE_GAP 120   // gap between eyes
-#define EYE_OX  0     // horizontal offset
-#define EYE_OY  40    // vertical offset upward
+```powershell
+cd hook
+.\install-global.ps1 -DeviceIP 192.168.x.x
 ```
 
-### Logo animation duration
+脚本会：
 
-```cpp
-// In animLogoReveal() — how long logo holds after animation
-delay(1500);       // milliseconds — change this number
+- 安装 Hook 到 `%USERPROFILE%\.clawd-mochi\hook\`
+- 写入 `device.json`（设备 IP）
+- 写入 Cursor 全局 `%USERPROFILE%\.cursor\hooks.json`
+- **合并** Claude Code `%USERPROFILE%\.claude\settings.json` 中的 `hooks`（保留其他配置）
 
-// Speed of the reveal drawing stroke by stroke
-delay(speedMs(8)); // lower = faster
+仅装 Cursor：`.\install-global.ps1 -DeviceIP x.x.x.x -SkipClaude`  
+仅装 Claude Code：`.\install-global.ps1 -DeviceIP x.x.x.x -SkipCursor`
+
+**重启 Cursor / Claude Code** 后生效。Cursor 需在 **Agent 模式**（非 Ask）发消息。
+
+> IP 变更时：编辑 `%USERPROFILE%\.clawd-mochi\hook\device.json`，或重跑 `install-global.ps1 -DeviceIP <新IP>`
+
+手动配置说明见 [hook/README.md](hook/README.md) 或 [配置指南.md](配置指南.md)。
+
+---
+
+## Monitor 状态
+
+| 状态 | 屏幕表现 | 典型触发 |
+|------|----------|----------|
+| `idle` | 空闲表情轮播 | 会话开始 |
+| `thinking` | 眯眼 squish 动画 | 发送 Agent 消息 |
+| `working` | 收窄双眼左右扫视（Scan 眼） | 调用工具 |
+| `done` | 闪光庆祝 → 自动 idle | Agent 完成（`stop`） |
+| `alert` | Logo 动画 | 工具失败 / 通知 |
+| `offline` | 关背光 | 会话结束 |
+
+`thinking` / `working` 若 30 秒无新事件，自动回到 `idle`。
+
+---
+
+## HTTP API
+
+```
+GET http://<设备IP>/status?s=idle|thinking|working|done|alert|offline
+GET http://<设备IP>/state
+GET http://192.168.4.1/wifi/save?ssid=名称&pass=密码   # AP 模式下配 WiFi
+```
+
+手动测试：
+
+```powershell
+Invoke-WebRequest -Uri "http://192.168.x.x/status?s=thinking" -UseBasicParsing
+```
+
+更多测试命令见 [hook/状态测试指令.md](hook/状态测试指令.md)。
+
+---
+
+## 项目结构
+
+```
+clawd-mochi/
+├── clawd_mochi/
+│   └── clawd_mochi.ino      # 固件（单文件）
+├── hook/
+│   ├── clawd-hook.js        # Cursor / Claude Code → 设备状态
+│   ├── device.json          # 设备 IP（与 clawd-hook.js 同目录）
+│   ├── install-global.ps1   # 一键安装 Cursor 全局 Hook
+│   ├── README.md            # Hook 详细说明
+│   └── 状态测试指令.md       # 全状态测试命令
+├── .cursor/
+│   └── hooks.json           # 项目级 Cursor Hook（可选）
+├── web/
+│   └── expression-editor/
+│       └── index.html       # 浏览器表情编辑器
+├── 配置指南.md               # 完整配置流程（中文）
+└── README.md                # 本文件
 ```
 
 ---
 
-## Contributing
+## 表情编辑器（Web）
 
-Contributions are very welcome! Here are some ideas:
+在浏览器中自定义与固件一致的表情参数，实时预览 240×240 画面，导出 JSON / C++ 常量：
 
-- **New animations** — add new expressions, transitions, or idle behaviors
-- **New views** — weather display, clock, notification badges, pixel art scenes
-- **Sound** — add a small buzzer for sound effects
-- **Sensors** — connect a touch sensor or button for physical interaction
-- **OTA updates** — add over-the-air firmware updates
-- **MQTT / Home Assistant** — connect to smart home platforms
+```
+web/expression-editor/index.html
+```
 
-To contribute: fork the repo, make your changes, and open a pull request. Please keep the single-file structure (`clawd_mochi.ino`) so it stays easy for beginners to flash.
+双击打开即可，无需服务器。
+
+---
+
+## 文档
+
+| 文档 | 内容 |
+|------|------|
+| [配置指南.md](配置指南.md) | 从硬件到 Hook 的完整步骤 |
+| [hook/README.md](hook/README.md) | Hook 安装、Cursor / Claude Code 事件映射 |
+| [hook/状态测试指令.md](hook/状态测试指令.md) | HTTP / Hook 全状态测试 |
+
+---
+
+## 故障排查
+
+| 现象 | 处理 |
+|------|------|
+| Hook 无反应 | 确认在 **Agent 模式**；Settings → Hooks 已启用；重启 Cursor |
+| 设备不更新 | 检查 `device.json` IP；PC 与设备同网段 |
+| IP 变了 | 改 `%USERPROFILE%\.clawd-mochi\hook\device.json` |
+| 30 秒后回 idle | 正常超时保护 |
+
+---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-**Note:** 3D models and media assets are licensed under **CC BY-NC-SA 4.0**.
+MIT License — 见 [LICENSE](LICENSE)
