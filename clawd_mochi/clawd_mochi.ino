@@ -100,6 +100,14 @@ const uint8_t IDLE_POOL[] = { IDLE_NORMAL, IDLE_SLEEPY, IDLE_HEART, IDLE_HAPPY }
 uint8_t workAct = ACT_WORK;
 char    tickerText[32] = "";
 
+char    tickerDrawn[32] = "";
+uint8_t tickerScroll = 0;
+unsigned long tickerScrollMs = 0;
+bool    tickerVisible = false;
+#define TICKER_Y    216
+#define TICKER_H    (DISP_H - TICKER_Y)
+#define TICKER_COLS 19
+
 uint8_t  currentView   = VIEW_EYES_NORMAL;
 uint8_t  monitorState  = MON_IDLE;
 uint8_t  currentIdleIndex = 0;
@@ -1139,6 +1147,54 @@ void rigOverlayTick() {
   }
 }
 
+// ── Activity ticker(仅 MON_WORKING) ─────────────────────────
+void clearTicker() {
+  if (!tickerVisible) return;
+  tft.fillRect(0, TICKER_Y, DISP_W, TICKER_H, animBgColor);
+  tickerVisible = false;
+  tickerDrawn[0] = 0;
+  tickerScroll = 0;
+}
+
+void drawTickerFrame(const char* txt) {
+  tft.fillRect(0, TICKER_Y, DISP_W, TICKER_H, C_DARKBG);
+  tft.drawFastHLine(0, TICKER_Y, DISP_W, C_MUTED);
+  tft.setTextColor(C_GREEN);
+  tft.setTextSize(2);
+  tft.setCursor(4, TICKER_Y + 5);
+  char buf[TICKER_COLS + 1];
+  strncpy(buf, txt, TICKER_COLS);
+  buf[TICKER_COLS] = 0;
+  tft.print(buf);
+  tickerVisible = true;
+}
+
+void tickTicker(unsigned long now) {
+  if (monitorState != MON_WORKING || tickerText[0] == 0) {
+    clearTicker();
+    return;
+  }
+  const size_t len = strlen(tickerText);
+  if (len <= TICKER_COLS) {                       // 静态:仅变化时重绘
+    if (strcmp(tickerText, tickerDrawn) != 0) {
+      drawTickerFrame(tickerText);
+      strcpy(tickerDrawn, tickerText);
+    }
+    return;
+  }
+  if (now - tickerScrollMs < 150) return;         // 跑马灯
+  tickerScrollMs = now;
+  const size_t vlen = len + 3;                    // 3 格空隙
+  char win[TICKER_COLS + 1];
+  for (uint8_t i = 0; i < TICKER_COLS; i++) {
+    const size_t idx = (tickerScroll + i) % vlen;
+    win[i] = (idx < len) ? tickerText[idx] : ' ';
+  }
+  win[TICKER_COLS] = 0;
+  drawTickerFrame(win);
+  tickerScroll = (uint8_t)((tickerScroll + 1) % vlen);
+}
+
 // ═════════════════════════════════════════════════════════════
 //  TERMINAL
 // ═════════════════════════════════════════════════════════════
@@ -1313,6 +1369,7 @@ void tickMonitorAnimation() {
   rigTick(now);
   drawRig();
   rigOverlayTick();
+  tickTicker(now);
 }
 
 void animSleepyEyes() {
@@ -1375,6 +1432,8 @@ void animScanEyes() {
 
 void animDoneSparkle() {
   busy = true;
+  tickerVisible = false;
+  tickerDrawn[0] = 0;
   static const int16_t grow[5] = {8, 20, 36, 26, 30};
   for (uint8_t i = 0; i < 5; i++) {
     tft.fillScreen(animBgColor);
@@ -1459,6 +1518,8 @@ void setTickerText(uint8_t act, const String& info) {
   clean[n] = 0;
   if (n == 0) snprintf(tickerText, sizeof(tickerText), "> %s", actVerb(act));
   else        snprintf(tickerText, sizeof(tickerText), "> %s %s", actVerb(act), clean);
+  tickerScroll = 0;
+  tickerDrawn[0] = 0;
 }
 
 void applyMonitorState(const String& s, const String& act, const String& info) {
@@ -1505,6 +1566,8 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   if (entering) {
     tft.fillScreen(animBgColor);   // 从其他画面切入:整屏清理,杜绝残留
     rigInvalidate();
+    tickerVisible = false;
+    tickerDrawn[0] = 0;
   }
 
   switch (monitorState) {
@@ -1522,11 +1585,15 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
       if (!backlightOn) setBacklight(true);
       animLogoReveal();
       rigInvalidate();
+      tickerVisible = false;
+      tickerDrawn[0] = 0;
       break;
     case MON_OFFLINE:
       drawNormalEyes();
       setBacklight(false);
       rigInvalidate();
+      tickerVisible = false;
+      tickerDrawn[0] = 0;
       break;
   }
 }
@@ -1539,6 +1606,8 @@ void enterMonitorView() {
   lastAnimTick = 0;
   if (monitorState == MON_IDLE) resetIdleRotation();
   tft.fillScreen(animBgColor);   // 手动切入同样整屏清理
+  tickerVisible = false;
+  tickerDrawn[0] = 0;
   rigApplyExpression(true);   // snap:进视图立即就位
 }
 
