@@ -2475,6 +2475,7 @@ void loop() {
       staConnected = (WiFi.status() == WL_CONNECTED);
       if (staConnected) {
         staIP = WiFi.localIP().toString();
+        if (!wasConnected) startMDNS();   // 后台自行连上(开机连接超时后):补注册 mDNS
       } else {
         staIP = "";
         if (wasConnected) {
