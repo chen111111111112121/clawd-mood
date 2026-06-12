@@ -180,6 +180,14 @@ static const uint8_t BLINK_H_PCT[BLINK_FRAMES] = {106, 60, 8, 8, 70, 104, 100};
 static const uint8_t BLINK_W_PCT[BLINK_FRAMES] = { 97, 105, 118, 118, 103, 98, 100};
 static const int8_t  BREATH_TAB[16] = {0,1,1,2,2,2,1,1,0,-1,-1,-2,-2,-2,-1,-1};
 
+// 打字机 edit 表情参数
+#define EDIT_COLS    17    // 每行格数
+#define EDIT_CELL_W  12    // 格宽(8px 块 + 4px 间隙)
+#define EDIT_LINE_X  18    // 行起点 x
+#define EDIT_LINE_Y  196   // 当前行 y
+#define EDIT_LINE_H  10    // 当前行块高
+#define EDIT_TRACE_Y 184   // 上一行痕迹 y
+
 // 姿态预设
 const EyePose POSE_NORMAL = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
 const EyePose POSE_SLEEPY = {STYLE_RECT,    0,  8, EYE_W, EYE_H, 170};
@@ -188,7 +196,7 @@ const EyePose POSE_HAPPY  = {STYLE_ARC,     0,  8, 30, 30, 0};
 const EyePose POSE_THINK  = {STYLE_CHEVRON, 0,  0, EYE_W / 2, EYE_H, 0};
 const EyePose POSE_SCAN   = {STYLE_RECT,    0,  0, SCAN_EYE_W, EYE_H, 0};
 const EyePose POSE_READ   = {STYLE_RECT,    0, 26, 26, 16, 0};
-const EyePose POSE_EDIT   = {STYLE_RECT,    0,  0, 22, 38, 50};
+const EyePose POSE_EDIT   = {STYLE_RECT, -13, 12, 20, 34, 40};
 const EyePose POSE_RUN    = {STYLE_RECT,    0,  0, 14, 44, 0};
 const EyePose POSE_NET    = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
 
@@ -1011,7 +1019,13 @@ void rigBehaviorTick(unsigned long now) {
       case ACT_NET:                       // 大幅东张西望
         if (now >= rigBehNextMs) { rig.pose.ox = random(2) ? 24 : -24; rigBehNextMs = now + 500 + random(400); }
         break;
-      case ACT_EDIT:                      // 眼睛稳住,光标覆盖层闪烁
+      case ACT_EDIT:                      // 打字机:眼随写入点移动,行尾回车归位
+        if (now >= rigBehNextMs) {
+          rigBehStep++;
+          if (rigBehStep > EDIT_COLS) rigBehStep = 0;
+          rig.pose.ox = -13 + ((int16_t)rigBehStep * 26) / EDIT_COLS;
+          rigBehNextMs = now + 170;
+        }
         break;
       default: {                          // ACT_WORK / ACT_AGENT:经典扫视
         static const int8_t scan[10] = {-28, -18, -8, 2, 12, 22, 28, 16, 2, -14};
@@ -1047,17 +1061,53 @@ void rigOverlayTick() {
     lastZ = 255;
   }
 
-  static bool caretDrawn = false;
+  static uint8_t  lastEditCol = 255;   // 255=未在书写状态
+  static int16_t  lastCaretX  = -1;
+  static uint8_t  editLine    = 0;
   if (monitorState == MON_WORKING && workAct == ACT_EDIT) {
-    const unsigned long now = millis();
-    if (now - caretMs >= 530 || rigZoneCleared) {
-      if (now - caretMs >= 530) { caretOn = !caretOn; caretMs = now; }
-      tft.fillRect(206, 196, 10, 16, caretOn ? C_GREEN : animBgColor);
-      caretDrawn = true;
+    const unsigned long nowE = millis();
+    const uint8_t col = (rigBehStep > EDIT_COLS) ? EDIT_COLS : rigBehStep;
+    const uint16_t dimGreen = tft.color565(18, 92, 40);
+    const int16_t  caretX = EDIT_LINE_X + (int16_t)col * EDIT_CELL_W;
+    const bool wrapped = (lastEditCol != 255 && col < lastEditCol);
+
+    if (caretX != lastCaretX && lastCaretX >= 0) {        // 先擦旧光标
+      tft.fillRect(lastCaretX, EDIT_LINE_Y, 8, 14, animBgColor);
     }
-  } else if (caretDrawn) {
-    tft.fillRect(206, 196, 10, 16, animBgColor);
-    caretDrawn = false;
+
+    if (rigZoneCleared || lastEditCol == 255 || wrapped) {  // 整行重建
+      if (wrapped) editLine++;
+      tft.fillRect(0, EDIT_TRACE_Y, DISP_W, (EDIT_LINE_Y + 14) - EDIT_TRACE_Y, animBgColor);
+      if (editLine > 0) {                                  // 上一行暗色痕迹
+        const int16_t tw = (editLine & 1) ? 150 : 110;
+        for (int16_t x = EDIT_LINE_X; x < EDIT_LINE_X + tw; x += EDIT_CELL_W) {
+          tft.fillRect(x, EDIT_TRACE_Y, 8, 6, dimGreen);
+        }
+      }
+      for (uint8_t i = 0; i < col; i++) {                  // 已写格子
+        if ((i * 7 + editLine * 3) % 5 == 0) continue;     // 固定花纹空格,似代码缩进
+        tft.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
+      }
+      lastCaretX = -1;
+    } else if (col == lastEditCol + 1) {                   // 增量:补画刚写完的格子
+      const uint8_t i = col - 1;
+      if ((i * 7 + editLine * 3) % 5 != 0) {
+        tft.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
+      }
+    }
+    lastEditCol = col;
+
+    if (caretX != lastCaretX) {                            // 光标移位:立即点亮
+      lastCaretX = caretX;
+      caretOn = true; caretMs = nowE;
+      tft.fillRect(caretX, EDIT_LINE_Y, 8, 14, C_GREEN);
+    } else if (nowE - caretMs >= 400) {                    // 原地闪烁
+      caretOn = !caretOn; caretMs = nowE;
+      tft.fillRect(caretX, EDIT_LINE_Y, 8, 14, caretOn ? C_GREEN : animBgColor);
+    }
+  } else if (lastEditCol != 255) {                         // 离开 edit:清书写区
+    tft.fillRect(0, EDIT_TRACE_Y, DISP_W, (EDIT_LINE_Y + 14) - EDIT_TRACE_Y, animBgColor);
+    lastEditCol = 255; lastCaretX = -1; editLine = 0;
   }
 
   // 开心眼:偶发星星(位置避开弧线眼的脏区包围盒)
