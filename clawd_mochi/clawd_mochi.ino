@@ -104,7 +104,7 @@ char    tickerDrawn[32] = "";
 uint8_t tickerScroll = 0;
 unsigned long tickerScrollMs = 0;
 bool    tickerVisible = false;
-#define TICKER_Y    216
+#define TICKER_Y    213   // 紧贴表情区下沿(28+185),不留无人缝隙
 #define TICKER_H    (DISP_H - TICKER_Y)
 #define TICKER_COLS 19
 
