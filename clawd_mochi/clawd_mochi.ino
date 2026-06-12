@@ -187,6 +187,8 @@ static const int8_t  BREATH_TAB[16] = {0,1,1,2,2,2,1,1,0,-1,-1,-2,-2,-2,-1,-1};
 #define EDIT_LINE_Y  196   // 当前行 y
 #define EDIT_LINE_H  10    // 当前行块高
 #define EDIT_TRACE_Y 184   // 上一行痕迹 y
+#define EDIT_CARET_H 14    // 光标高
+#define EDIT_BAND_H  ((EDIT_LINE_Y + EDIT_CARET_H) - EDIT_TRACE_Y)   // 书写带总高
 
 // 姿态预设
 const EyePose POSE_NORMAL = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
@@ -1063,33 +1065,36 @@ void rigOverlayTick() {
 
   static uint8_t  lastEditCol = 255;   // 255=未在书写状态
   static int16_t  lastCaretX  = -1;
-  static uint8_t  editLine    = 0;
+  static uint16_t editLine    = 0;
   if (monitorState == MON_WORKING && workAct == ACT_EDIT) {
     const unsigned long nowE = millis();
+    // 防御性钳制:行为 tick 会自行归零,此处仅防未来改动失配
     const uint8_t col = (rigBehStep > EDIT_COLS) ? EDIT_COLS : rigBehStep;
     const uint16_t dimGreen = tft.color565(18, 92, 40);
     const int16_t  caretX = EDIT_LINE_X + (int16_t)col * EDIT_CELL_W;
     const bool wrapped = (lastEditCol != 255 && col < lastEditCol);
+    const bool jumped  = (lastEditCol != 255 && col > lastEditCol + 1);   // 帧延迟跳格
+    const bool rebuild = rigZoneCleared || lastEditCol == 255 || wrapped || jumped;
 
     if (caretX != lastCaretX && lastCaretX >= 0) {        // 先擦旧光标
-      tft.fillRect(lastCaretX, EDIT_LINE_Y, 8, 14, animBgColor);
+      tft.fillRect(lastCaretX, EDIT_LINE_Y, 8, EDIT_CARET_H, animBgColor);
     }
 
-    if (rigZoneCleared || lastEditCol == 255 || wrapped) {  // 整行重建
+    if (rebuild) {                                        // 整行重建
+      if (lastEditCol == 255) editLine = 0;               // 重进 edit:从第 0 行开始
       if (wrapped) editLine++;
-      tft.fillRect(0, EDIT_TRACE_Y, DISP_W, (EDIT_LINE_Y + 14) - EDIT_TRACE_Y, animBgColor);
-      if (editLine > 0) {                                  // 上一行暗色痕迹
+      tft.fillRect(0, EDIT_TRACE_Y, DISP_W, EDIT_BAND_H, animBgColor);
+      if (editLine > 0) {                                 // 上一行暗色痕迹
         const int16_t tw = (editLine & 1) ? 150 : 110;
         for (int16_t x = EDIT_LINE_X; x < EDIT_LINE_X + tw; x += EDIT_CELL_W) {
           tft.fillRect(x, EDIT_TRACE_Y, 8, 6, dimGreen);
         }
       }
-      for (uint8_t i = 0; i < col; i++) {                  // 已写格子
-        if ((i * 7 + editLine * 3) % 5 == 0) continue;     // 固定花纹空格,似代码缩进
+      for (uint8_t i = 0; i < col; i++) {                 // 已写格子
+        if ((i * 7 + editLine * 3) % 5 == 0) continue;    // 固定花纹空格,似代码缩进
         tft.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
       }
-      lastCaretX = -1;
-    } else if (col == lastEditCol + 1) {                   // 增量:补画刚写完的格子
+    } else if (col == lastEditCol + 1) {                  // 增量:补画刚写完的格子
       const uint8_t i = col - 1;
       if ((i * 7 + editLine * 3) % 5 != 0) {
         tft.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
@@ -1097,16 +1102,18 @@ void rigOverlayTick() {
     }
     lastEditCol = col;
 
-    if (caretX != lastCaretX) {                            // 光标移位:立即点亮
+    if (caretX != lastCaretX) {                           // 光标真移位:点亮并重置计时
       lastCaretX = caretX;
       caretOn = true; caretMs = nowE;
-      tft.fillRect(caretX, EDIT_LINE_Y, 8, 14, C_GREEN);
-    } else if (nowE - caretMs >= 400) {                    // 原地闪烁
+      tft.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, C_GREEN);
+    } else if (rebuild) {                                 // 区域重建但光标未动:按当前状态补画,不动计时
+      if (caretOn) tft.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, C_GREEN);
+    } else if (nowE - caretMs >= 400) {                   // 原地闪烁
       caretOn = !caretOn; caretMs = nowE;
-      tft.fillRect(caretX, EDIT_LINE_Y, 8, 14, caretOn ? C_GREEN : animBgColor);
+      tft.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, caretOn ? C_GREEN : animBgColor);
     }
-  } else if (lastEditCol != 255) {                         // 离开 edit:清书写区
-    tft.fillRect(0, EDIT_TRACE_Y, DISP_W, (EDIT_LINE_Y + 14) - EDIT_TRACE_Y, animBgColor);
+  } else if (lastEditCol != 255) {                        // 离开 edit:清书写区
+    tft.fillRect(0, EDIT_TRACE_Y, DISP_W, EDIT_BAND_H, animBgColor);
     lastEditCol = 255; lastCaretX = -1; editLine = 0;
   }
 
