@@ -113,7 +113,6 @@ uint8_t  currentView   = VIEW_EYES_NORMAL;
 uint8_t  monitorState  = MON_IDLE;
 uint8_t  currentIdleIndex = 0;
 uint8_t  currentIdleExpr  = IDLE_NORMAL;
-uint8_t  animPhase        = 0;
 unsigned long lastStatusMs = 0;
 unsigned long lastIdleSwitch = 0;
 
@@ -477,18 +476,6 @@ inline int16_t eyeCY()           { return eyeY() + EYE_H / 2; }
 
 uint8_t expressionRenderKey() {
   return (uint8_t)(monitorState | (currentIdleExpr << 3));
-}
-
-void invalidateExpressionCanvas() {
-  lastRenderKey = 255;
-  prevEyeL.valid = false;
-  prevEyeR.valid = false;
-  lastTickOx = -999;
-  lastTickScanOx = -999;
-  lastTickSquishState = 255;
-  lastTickHeartScale = 255;
-  lastSleepyTop = -999;
-  lastSleepyZ = 255;
 }
 
 void ensureFullExpressionBg() {
@@ -1361,12 +1348,6 @@ void resetIdleRotation() {
     random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
 }
 
-int animTickMs() {
-  if (animSpeed == 3) return 45;
-  if (animSpeed == 1) return 110;
-  return 70;
-}
-
 void tickMonitorAnimation() {
   if (currentView != VIEW_MONITOR) return;
   if (busy) return;
@@ -1468,6 +1449,7 @@ void animDoneSparkle() {
   currentIdleExpr = IDLE_NORMAL;
   currentIdleIndex = 0;
   resetIdleRotation();
+  tft.fillScreen(animBgColor);   // 清掉庆祝时画到表情区外(顶/底条)的星点
   rigApplyExpression(true);
 }
 
