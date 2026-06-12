@@ -1361,7 +1361,39 @@ void checkIdleRotation() {
     random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
 }
 
-void applyMonitorState(const String& s) {
+uint8_t parseAct(const String& a) {
+  if (a == "read")  return ACT_READ;
+  if (a == "edit")  return ACT_EDIT;
+  if (a == "run")   return ACT_RUN;
+  if (a == "net")   return ACT_NET;
+  if (a == "agent") return ACT_AGENT;
+  return ACT_WORK;
+}
+
+const char* actVerb(uint8_t act) {
+  switch (act) {
+    case ACT_READ:  return "read";
+    case ACT_EDIT:  return "edit";
+    case ACT_RUN:   return "run";
+    case ACT_NET:   return "net";
+    case ACT_AGENT: return "agent";
+    default:        return "work";
+  }
+}
+
+void setTickerText(uint8_t act, const String& info) {
+  char clean[22];
+  uint8_t n = 0;
+  for (size_t i = 0; i < info.length() && n < 21; i++) {
+    const char c = info[i];
+    if (c >= 0x20 && c <= 0x7E) clean[n++] = c;   // 防御:仅可打印 ASCII
+  }
+  clean[n] = 0;
+  if (n == 0) snprintf(tickerText, sizeof(tickerText), "> %s", actVerb(act));
+  else        snprintf(tickerText, sizeof(tickerText), "> %s %s", actVerb(act), clean);
+}
+
+void applyMonitorState(const String& s, const String& act, const String& info) {
   if (busy) return;   // 阻塞动画期间丢弃状态推送,防 done 递归与状态撕裂
   if (s == "done") {
     lastStatusMs = millis();
@@ -1381,6 +1413,16 @@ void applyMonitorState(const String& s) {
   else if (s == "alert")     monitorState = MON_ALERT;
   else if (s == "offline")   monitorState = MON_OFFLINE;
   else return;
+
+  if (monitorState == MON_WORKING && s == "working") {
+    if (act.length() > 0) {
+      workAct = parseAct(act);
+      setTickerText(workAct, info);
+    } else {
+      workAct = ACT_WORK;        // 老 hook / 缺参:经典扫视、无 ticker,与现状一致
+      tickerText[0] = 0;
+    }
+  }
 
   lastStatusMs = millis();
   statusTimedOut = false;
@@ -2133,8 +2175,10 @@ void routeStatus() {
     return;
   }
   const String s = server.arg("s");
+  const String act  = server.hasArg("act")  ? server.arg("act")  : "";
+  const String info = server.hasArg("info") ? server.arg("info") : "";
   server.send(200, "application/json", "{\"ok\":1}");
-  applyMonitorState(s);
+  applyMonitorState(s, act, info);
 }
 
 void routeWifiSave() {
