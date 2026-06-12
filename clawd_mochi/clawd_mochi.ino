@@ -24,6 +24,7 @@
 #include <math.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 
 // ── Pins ──────────────────────────────────────────────────────
@@ -407,6 +408,14 @@ bool connectSTA() {
   return staConnected;
 }
 
+void startMDNS() {
+  if (!staConnected) return;
+  MDNS.end();
+  if (MDNS.begin("clawd")) {              // http://clawd.local
+    MDNS.addService("http", "tcp", 80);
+  }
+}
+
 void drawWifiScreen() {
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
@@ -423,8 +432,10 @@ void drawWifiScreen() {
   if (staConnected) {
     tft.setTextColor(C_GREEN); tft.setTextSize(2);
     tft.setCursor(12, 124); tft.print(staIP);
+    tft.setTextColor(C_GREEN); tft.setTextSize(1);
+    tft.setCursor(12, 148); tft.print("or  http://clawd.local");
     tft.setTextColor(C_MUTED); tft.setTextSize(1);
-    tft.setCursor(12, 152); tft.print("Hook: /status?s=...");
+    tft.setCursor(12, 162); tft.print("Hook: /status?s=...");
   } else {
     tft.setTextColor(C_MUTED); tft.setTextSize(1);
     tft.setCursor(12, 124); tft.print("not connected");
@@ -2339,6 +2350,7 @@ void routeWifiSave() {
   WiFi.disconnect();
   delay(100);
   connectSTA();
+  startMDNS();
   drawWifiScreen();
 
   String j = "{\"ok\":1,\"sta\":";
@@ -2418,6 +2430,7 @@ void setup() {
 
   if (savedSSID.length() > 0) {
     connectSTA();
+    startMDNS();
   }
 
   drawWifiScreen();
@@ -2464,7 +2477,10 @@ void loop() {
         staIP = WiFi.localIP().toString();
       } else {
         staIP = "";
-        if (wasConnected) connectSTA();
+        if (wasConnected) {
+          connectSTA();
+          startMDNS();
+        }
       }
     }
   }
