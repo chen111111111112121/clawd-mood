@@ -46,6 +46,70 @@ const STATE_MAP = {
   preCompact: 'thinking',
 };
 
+// ── Tool semantics (state=working 時随 /status 附带) ─────────
+const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'NotebookRead']);
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+function basename(p) {
+  if (typeof p !== 'string' || !p) return '';
+  const parts = p.replace(/\\/g, '/').split('/');
+  return parts[parts.length - 1] || '';
+}
+
+function classifyTool(toolName, toolInput) {
+  const name = typeof toolName === 'string' ? toolName : '';
+  const input = (toolInput && typeof toolInput === 'object') ? toolInput : {};
+  if (READ_TOOLS.has(name)) {
+    return { act: 'read', info: basename(input.file_path) || (typeof input.pattern === 'string' ? input.pattern : '') };
+  }
+  if (EDIT_TOOLS.has(name)) {
+    return { act: 'edit', info: basename(input.file_path) || basename(input.notebook_path) };
+  }
+  if (name === 'Bash') {
+    const cmd = typeof input.command === 'string' ? input.command.trim() : '';
+    return { act: 'run', info: cmd.split(/\s+/)[0] || '' };
+  }
+  if (name === 'WebFetch' || name === 'WebSearch') {
+    let info = '';
+    if (typeof input.url === 'string') {
+      try { info = new URL(input.url).hostname; } catch (_) { info = input.url; }
+    } else if (typeof input.query === 'string') {
+      info = input.query;
+    }
+    return { act: 'net', info };
+  }
+  if (name === 'Task' || name === 'Agent') {
+    return { act: 'agent', info: typeof input.description === 'string' ? input.description : '' };
+  }
+  return { act: 'work', info: name };
+}
+
+function sanitizeInfo(s) {
+  if (typeof s !== 'string') return '';
+  let out = '';
+  for (const ch of s) {
+    const code = ch.codePointAt(0);
+    if (code >= 0x20 && code <= 0x7e) out += ch;
+  }
+  return out.trim().slice(0, 22);
+}
+
+function resolveSemantics(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const { act, info } = classifyTool(payload.tool_name, payload.tool_input);
+  const clean = sanitizeInfo(info) || sanitizeInfo(payload.tool_name || '');
+  return { act, info: clean };
+}
+
+function buildStatusUrl(ip, state, semantics) {
+  let url = `http://${ip}/status?s=${encodeURIComponent(state)}`;
+  if (state === 'working' && semantics) {
+    url += `&act=${encodeURIComponent(semantics.act)}`;
+    if (semantics.info) url += `&info=${encodeURIComponent(semantics.info)}`;
+  }
+  return url;
+}
+
 function getDeviceIP() {
   if (process.env.CLAWD_DEVICE_IP) return process.env.CLAWD_DEVICE_IP.trim();
   try {
@@ -115,4 +179,8 @@ async function main() {
   process.exit(0);
 }
 
-main().catch(() => process.exit(0));
+if (require.main === module) {
+  main().catch(() => process.exit(0));
+} else {
+  module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP };
+}
