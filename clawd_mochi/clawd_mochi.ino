@@ -849,6 +849,25 @@ void drawRigEye(int16_t cx, int16_t cy, int16_t w, int16_t h, int16_t lid,
   }
 }
 
+// 擦除旧矩形中未被新矩形覆盖的部分(最多 4 条边条),黑色主体直接覆盖,避免闪烁
+void eraseRectOutside(const EyeRect &p, int16_t nx, int16_t ny, int16_t nw, int16_t nh) {
+  if (!p.valid) return;
+  const int16_t px2 = p.x + p.w, py2 = p.y + p.h;
+  const int16_t nx2 = nx + nw, ny2 = ny + nh;
+  if (nx >= px2 || nx2 <= p.x || ny >= py2 || ny2 <= p.y) {
+    tft.fillRect(p.x, p.y, p.w, p.h, animBgColor);   // 无重叠:整块擦
+    return;
+  }
+  if (ny > p.y)  tft.fillRect(p.x, p.y, p.w, ny - p.y, animBgColor);
+  if (py2 > ny2) tft.fillRect(p.x, ny2, p.w, py2 - ny2, animBgColor);
+  const int16_t iy = (p.y > ny) ? p.y : ny;
+  const int16_t ih = ((py2 < ny2) ? py2 : ny2) - iy;
+  if (ih > 0) {
+    if (nx > p.x)  tft.fillRect(p.x, iy, nx - p.x, ih, animBgColor);
+    if (px2 > nx2) tft.fillRect(nx2, iy, px2 - nx2, ih, animBgColor);
+  }
+}
+
 void drawRig() {
   int16_t ox  = rig.ox.cur >> 8;
   int16_t oy  = (rig.oy.cur >> 8) + rigBreathOffset();
@@ -864,22 +883,52 @@ void drawRig() {
     if (h < 4) h = 4;
   }
 
+  static int16_t lastOx = -32768, lastOy = 0, lastW = 0, lastH = 0, lastLid = 0;
+  static uint8_t lastStyle = 255;
+
   rigZoneCleared = false;
+  const bool unchanged = !rig.zoneDirty && rig.prevValid &&
+      ox == lastOx && oy == lastOy && w == lastW && h == lastH &&
+      lid == lastLid && (uint8_t)rig.drawnStyle == lastStyle;
+  if (unchanged) return;          // 无任何变化:整帧跳过,不碰屏幕
+
   if (rig.zoneDirty) {
     tft.fillRect(0, EXPR_ZONE_Y, DISP_W, EXPR_ZONE_H, animBgColor);
     rig.prevValid = false;
     rig.zoneDirty = false;
     rigZoneCleared = true;
   }
-  if (rig.prevValid) {
-    tft.fillRect(rig.prevL.x - 2, rig.prevL.y - 2, rig.prevL.w + 4, rig.prevL.h + 4, animBgColor);
-    tft.fillRect(rig.prevR.x - 2, rig.prevR.y - 2, rig.prevR.w + 4, rig.prevR.h + 4, animBgColor);
-  }
 
   const int16_t cy = eyeCY() + oy;
-  drawRigEye(rigLCX(ox), cy, w, h, lid, true,  rig.prevL);
-  drawRigEye(rigRCX(ox), cy, w, h, lid, false, rig.prevR);
+
+  if (rig.drawnStyle == STYLE_RECT) {
+    // 矩形眼:增量重绘——只擦旧矩形露出的边条,黑色区域直接覆盖
+    int16_t vis = (int16_t)((int32_t)h * (240 - lid) / 240);
+    if (vis < 5) vis = 5;
+    const int16_t top = cy - h / 2 + (h - vis);
+    const int16_t lx = rigLCX(ox) - w / 2;
+    const int16_t rx = rigRCX(ox) - w / 2;
+    if (rig.prevValid) {
+      eraseRectOutside(rig.prevL, lx, top, w, vis);
+      eraseRectOutside(rig.prevR, rx, top, w, vis);
+    }
+    tft.fillRect(lx, top, w, vis, C_BLACK);
+    tft.fillRect(rx, top, w, vis, C_BLACK);
+    rig.prevL = {lx, top, w, vis, true};
+    rig.prevR = {rx, top, w, vis, true};
+  } else {
+    // 字形眼(chevron/弧线/爱心):擦旧包围盒后重绘——仅参数变化帧才会走到这里
+    if (rig.prevValid) {
+      tft.fillRect(rig.prevL.x - 2, rig.prevL.y - 2, rig.prevL.w + 4, rig.prevL.h + 4, animBgColor);
+      tft.fillRect(rig.prevR.x - 2, rig.prevR.y - 2, rig.prevR.w + 4, rig.prevR.h + 4, animBgColor);
+    }
+    drawRigEye(rigLCX(ox), cy, w, h, lid, true,  rig.prevL);
+    drawRigEye(rigRCX(ox), cy, w, h, lid, false, rig.prevR);
+  }
   rig.prevValid = true;
+
+  lastOx = ox; lastOy = oy; lastW = w; lastH = h; lastLid = lid;
+  lastStyle = (uint8_t)rig.drawnStyle;
 }
 
 // ── 表情选择:状态 → 姿态 + 行为标志 ──────────────────────────
