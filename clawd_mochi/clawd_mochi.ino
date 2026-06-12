@@ -170,6 +170,9 @@ struct EyeRig {
 EyeRig rig;
 bool rigZoneCleared = false;   // 本帧是否清过表情区(供覆盖层重绘判断)
 
+unsigned long rigBehNextMs = 0;   // 行为脚本计时(表情切换时复位)
+uint8_t       rigBehStep   = 0;
+
 #define RIG_TICK_MS  33
 #define RIG_DAMP     196       // 速度阻尼(/256)
 #define BLINK_FRAMES 7
@@ -727,6 +730,8 @@ void rigSnapPose(const EyePose &p, uint8_t flags) {
   rig.drawnStyle = p.style;
   rig.blinkFrame = 0;
   rigInvalidate();
+  rigBehNextMs = 0;
+  rigBehStep = 0;
 }
 
 void rigSetPose(const EyePose &p, uint8_t flags) {
@@ -734,11 +739,15 @@ void rigSetPose(const EyePose &p, uint8_t flags) {
     rig.trans = 1;                 // 闭眼→换样式→睁眼(过渡中再调用则更新目标)
     rig.transNext = p;
     rig.transFlagsNext = flags;
+    rigBehNextMs = 0;
+    rigBehStep = 0;
     return;
   }
   if (rig.trans == 1) rig.trans = 0;   // 过渡中改回同样式:取消闭眼
   rig.pose = p;
   rig.flags = flags;
+  rigBehNextMs = 0;
+  rigBehStep = 0;
 }
 
 int16_t rigBreathOffset() {
@@ -903,22 +912,20 @@ void rigApplyExpression(bool snap) {
 
 // ── 脚本化行为:周期性挪动目标姿态,弹簧负责平滑 ─────────────
 void rigBehaviorTick(unsigned long now) {
-  static unsigned long nextMoveMs = 0;
-  static uint8_t step = 0;
   if (rig.trans != 0) return;
 
   if (monitorState == MON_IDLE) {
     switch (currentIdleExpr) {
       case IDLE_HEART:                    // 心跳脉冲
-        if (now >= nextMoveMs) {
+        if (now >= rigBehNextMs) {
           rig.pose.w = (rig.pose.w == 6) ? 7 : 6;
           rig.pose.h = rig.pose.w;
-          nextMoveMs = now + 600;
+          rigBehNextMs = now + 600;
         }
         break;
       case IDLE_HAPPY: {                  // 缓动摇摆
         static const int8_t sway[8] = {-6, -3, 0, 3, 6, 3, 0, -3};
-        if (now >= nextMoveMs) { rig.pose.ox = sway[step & 7]; step++; nextMoveMs = now + 260; }
+        if (now >= rigBehNextMs) { rig.pose.ox = sway[rigBehStep & 7]; rigBehStep++; rigBehNextMs = now + 260; }
         break;
       }
       default: break;                     // 普通/困倦:噪声层足够
@@ -927,9 +934,9 @@ void rigBehaviorTick(unsigned long now) {
   }
 
   if (monitorState == MON_THINKING) {     // chevron 开合
-    if (now >= nextMoveMs) {
+    if (now >= rigBehNextMs) {
       rig.pose.lid = (rig.pose.lid == 0) ? 240 : 0;
-      nextMoveMs = now + 900;
+      rigBehNextMs = now + 900;
     }
     return;
   }
@@ -938,20 +945,20 @@ void rigBehaviorTick(unsigned long now) {
     switch (workAct) {
       case ACT_READ: {                    // 低头扫读
         static const int8_t readoy[6] = {22, 26, 30, 34, 30, 26};
-        if (now >= nextMoveMs) { rig.pose.oy = readoy[step % 6]; step++; nextMoveMs = now + 420; }
+        if (now >= rigBehNextMs) { rig.pose.oy = readoy[rigBehStep % 6]; rigBehStep++; rigBehNextMs = now + 420; }
         break;
       }
       case ACT_RUN:                       // 紧绷快速小扫视
-        if (now >= nextMoveMs) { rig.pose.ox = (int16_t)random(-8, 9); nextMoveMs = now + 260 + random(160); }
+        if (now >= rigBehNextMs) { rig.pose.ox = (int16_t)random(-8, 9); rigBehNextMs = now + 260 + random(160); }
         break;
       case ACT_NET:                       // 大幅东张西望
-        if (now >= nextMoveMs) { rig.pose.ox = random(2) ? 24 : -24; nextMoveMs = now + 500 + random(400); }
+        if (now >= rigBehNextMs) { rig.pose.ox = random(2) ? 24 : -24; rigBehNextMs = now + 500 + random(400); }
         break;
       case ACT_EDIT:                      // 眼睛稳住,光标覆盖层闪烁
         break;
       default: {                          // ACT_WORK / ACT_AGENT:经典扫视
         static const int8_t scan[10] = {-28, -18, -8, 2, 12, 22, 28, 16, 2, -14};
-        if (now >= nextMoveMs) { rig.pose.ox = scan[step % 10]; step++; nextMoveMs = now + 180; }
+        if (now >= rigBehNextMs) { rig.pose.ox = scan[rigBehStep % 10]; rigBehStep++; rigBehNextMs = now + 180; }
         break;
       }
     }
@@ -977,16 +984,23 @@ void rigOverlayTick() {
       if (z > 2) tft.print(" z");
       lastZ = z;
     }
-  } else {
+  } else if (lastZ != 255) {
+    const int16_t zy = eyeY() + EYE_H + 14;
+    tft.fillRect(DISP_W / 2 - 36, zy - 2, 72, 20, animBgColor);
     lastZ = 255;
   }
 
+  static bool caretDrawn = false;
   if (monitorState == MON_WORKING && workAct == ACT_EDIT) {
     const unsigned long now = millis();
     if (now - caretMs >= 530 || rigZoneCleared) {
       if (now - caretMs >= 530) { caretOn = !caretOn; caretMs = now; }
       tft.fillRect(206, 196, 10, 16, caretOn ? C_GREEN : animBgColor);
+      caretDrawn = true;
     }
+  } else if (caretDrawn) {
+    tft.fillRect(206, 196, 10, 16, animBgColor);
+    caretDrawn = false;
   }
 
   // 开心眼:偶发星星(位置避开弧线眼的脏区包围盒)
@@ -1163,56 +1177,10 @@ void resetIdleRotation() {
     random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
 }
 
-void resetMonitorAnim() {
-  animPhase = 0;
-  lastAnimTick = 0;
-  invalidateExpressionCanvas();
-}
-
 int animTickMs() {
   if (animSpeed == 3) return 45;
   if (animSpeed == 1) return 110;
   return 70;
-}
-
-void tickIdleAnimation() {
-  currentIdleExpr = IDLE_POOL[currentIdleIndex];
-  switch (currentIdleExpr) {
-    case IDLE_SLEEPY: {
-      const int8_t breath = (animPhase % 20 < 10)
-        ? (int8_t)(animPhase % 10) - 5 : 5 - (int8_t)(animPhase % 10);
-      const uint8_t z = 1 + (animPhase / 16) % 3;
-      drawSleepyEyes(z, breath / 2, true);
-      break;
-    }
-    case IDLE_HEART:
-      drawHeartEyes((animPhase % 10 < 5) ? 6 : 7, true);
-      break;
-    case IDLE_HAPPY: {
-      static const int16_t sway[] = {-6, -3, 0, 3, 6, 3, 0, -3};
-      drawHappyEyes(sway[animPhase % 8], animPhase % 20 == 10, true);
-      break;
-    }
-    default: {
-      static const int16_t look[] = {-14, -7, 0, 7, 14, 7, 0, -7};
-      if (animPhase % 40 == 36)      drawNormalEyes(0, true, true);
-      else if (animPhase % 40 == 37) drawNormalEyes(0, false, true);
-      else drawNormalEyes(look[(animPhase / 3) % 8], false, true);
-      break;
-    }
-  }
-}
-
-void tickThinkingAnimation() {
-  drawSquishEyes(animPhase % 14 >= 7, true);
-}
-
-void tickWorkingAnimation() {
-  static const int16_t scan[] = {
-    -28, -22, -16, -10, -4, 4, 10, 16, 22, 28,
-     22,  16,  10,   4, -4
-  };
-  drawScanEyes(scan[animPhase % 15], true);
 }
 
 void tickMonitorAnimation() {
@@ -1221,16 +1189,13 @@ void tickMonitorAnimation() {
   if (monitorState == MON_OFFLINE || monitorState == MON_ALERT) return;
 
   const unsigned long now = millis();
-  if (lastAnimTick != 0 && now - lastAnimTick < (unsigned long)animTickMs()) return;
+  if (lastAnimTick != 0 && now - lastAnimTick < RIG_TICK_MS) return;
   lastAnimTick = now;
-  animPhase++;
 
-  switch (monitorState) {
-    case MON_IDLE:      tickIdleAnimation();      break;
-    case MON_THINKING:  tickThinkingAnimation();  break;
-    case MON_WORKING:   tickWorkingAnimation();   break;
-    default: break;
-  }
+  rigBehaviorTick(now);
+  rigTick(now);
+  drawRig();
+  rigOverlayTick();
 }
 
 void animSleepyEyes() {
@@ -1293,6 +1258,14 @@ void animScanEyes() {
 
 void animDoneSparkle() {
   busy = true;
+  static const int16_t grow[5] = {8, 20, 36, 26, 30};
+  for (uint8_t i = 0; i < 5; i++) {
+    tft.fillScreen(animBgColor);
+    drawHappyArc(eyeLX(0) + EYE_W / 2, eyeCY() + 8, grow[i], C_BLACK);
+    drawHappyArc(eyeRX(0) + EYE_W / 2, eyeCY() + 8, grow[i], C_BLACK);
+    delay(speedMs(60));
+    server.handleClient();
+  }
   drawHappyEyes(0, false);
   delay(speedMs(200));
   for (uint8_t f = 0; f < 4; f++) {
@@ -1308,7 +1281,7 @@ void animDoneSparkle() {
   currentIdleExpr = IDLE_NORMAL;
   currentIdleIndex = 0;
   resetIdleRotation();
-  resetMonitorAnim();
+  rigApplyExpression(true);
 }
 
 void playIdleExpression(uint8_t expr) {
@@ -1318,15 +1291,6 @@ void playIdleExpression(uint8_t expr) {
     case IDLE_HEART:  animHeartEyes();  break;
     case IDLE_HAPPY:  animHappyEyes();  break;
     default:          animNormalEyes(); break;
-  }
-}
-
-void drawIdleStatic(uint8_t expr) {
-  switch (expr) {
-    case IDLE_SLEEPY: drawSleepyEyes(3, 0); break;
-    case IDLE_HEART:  drawHeartEyes(6);     break;
-    case IDLE_HAPPY:  drawHappyEyes(0, false); break;
-    default:          drawNormalEyes();     break;
   }
 }
 
@@ -1342,8 +1306,7 @@ void checkIdleRotation() {
 
   currentIdleIndex = (currentIdleIndex + 1) % IDLE_POOL_SIZE;
   currentIdleExpr = IDLE_POOL[currentIdleIndex];
-  animPhase = 0;
-  invalidateExpressionCanvas();
+  rigApplyExpression(false);   // 眼睑过渡切表情
   lastIdleSwitch = millis();
   nextIdleSwitchMs = IDLE_SWITCH_MIN_MS +
     random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
@@ -1382,26 +1345,22 @@ void applyMonitorState(const String& s) {
     case MON_IDLE:
       if (!backlightOn) setBacklight(true);
       resetIdleRotation();
-      resetMonitorAnim();
-      tickMonitorAnimation();
+      rigApplyExpression(false);
       break;
     case MON_THINKING:
-      if (!backlightOn) setBacklight(true);
-      resetMonitorAnim();
-      tickMonitorAnimation();
-      break;
     case MON_WORKING:
       if (!backlightOn) setBacklight(true);
-      resetMonitorAnim();
-      tickMonitorAnimation();
+      rigApplyExpression(false);
       break;
     case MON_ALERT:
       if (!backlightOn) setBacklight(true);
       animLogoReveal();
+      rigInvalidate();
       break;
     case MON_OFFLINE:
       drawNormalEyes();
       setBacklight(false);
+      rigInvalidate();
       break;
   }
 }
@@ -1410,9 +1369,9 @@ void enterMonitorView() {
   currentView = VIEW_MONITOR;
   termMode = false;
   statusTimedOut = false;
-  resetMonitorAnim();
+  lastAnimTick = 0;
   if (monitorState == MON_IDLE) resetIdleRotation();
-  tickMonitorAnimation();
+  rigApplyExpression(true);   // snap:进视图立即就位
 }
 
 void checkStatusTimeout() {
@@ -1426,7 +1385,7 @@ void checkStatusTimeout() {
   monitorState = MON_IDLE;
   if (!backlightOn) setBacklight(true);
   resetIdleRotation();
-  resetMonitorAnim();
+  rigApplyExpression(false);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -2054,11 +2013,7 @@ void routeRedraw() {
     case VIEW_CODE:        drawCodeView();   break;
     case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
     case VIEW_MONITOR:
-      switch (monitorState) {
-        case MON_THINKING: drawSquishEyes(false); break;
-        case MON_WORKING:  drawScanEyes(0); break;
-        default:           drawIdleStatic(IDLE_POOL[currentIdleIndex]); break;
-      }
+      rigApplyExpression(true);   // 换背景色后整区重绘
       break;
   }
   server.send(200, "application/json", "{\"ok\":1}");
