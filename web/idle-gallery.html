@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd Mochi · 空闲表情候选画廊</title>
+<style>
+  :root{
+    --bg:#1a1410; --panel:#241b14; --border:#4a3828;
+    --orange:#e87830; --text:#f0e6dc; --muted:#9a8878;
+    --good:#5fc46e; --mid:#e8b13a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  header{padding:22px 24px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#2a1810,#1a1410)}
+  header h1{margin:0 0 6px;font-size:1.45rem;color:var(--orange)}
+  header p{margin:0;color:var(--muted);font-size:.9rem;max-width:780px}
+  .controls{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:14px}
+  .controls label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .controls input[type=range]{accent-color:var(--orange)}
+  .controls button{background:transparent;border:1px solid var(--orange);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.85rem}
+  .controls button:hover{background:var(--orange);color:#1a1008}
+  section{padding:8px 24px 28px}
+  h2.sec{font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:22px 0 4px;border-bottom:1px dashed var(--border);padding-bottom:8px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:18px;margin-top:16px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .card.legacy{opacity:.92}
+  canvas{image-rendering:pixelated;border:3px solid #000;border-radius:10px;background:#DA1100;box-shadow:0 6px 22px rgba(0,0,0,.45);width:208px;height:208px}
+  .name{font-size:1.02rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}
+  .badge{font-size:.68rem;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.02em}
+  .badge.low{background:rgba(95,196,110,.16);color:var(--good);border:1px solid rgba(95,196,110,.4)}
+  .badge.mid{background:rgba(232,177,58,.16);color:var(--mid);border:1px solid rgba(232,177,58,.4)}
+  .num{font-size:.72rem;color:var(--muted);font-weight:400}
+  .desc{font-size:.82rem;color:var(--muted);text-align:center}
+  .note{font-size:.72rem;color:#7d6e60;text-align:center}
+  footer{padding:18px 24px 40px;color:var(--muted);font-size:.82rem;border-top:1px solid var(--border)}
+  footer code{background:#000;padding:1px 6px;border-radius:4px;color:var(--orange)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Clawd Mochi · 空闲表情候选画廊</h1>
+  <p>这 10 个是为 <b>idle 空闲轮播</b> 设计的新表情，全部用与固件一致的 rig 引擎实时驱动（弹簧缓动 / 眨眼挤压 / 呼吸起伏 / 微扫视，背景 #DA1100 黑眼，240×240）。挑你喜欢的，我再写进固件。下方还放了现有 4 个表情做对照。</p>
+  <div class="controls">
+    <label>速度
+      <input type="range" id="speed" min="1" max="3" value="2" step="1">
+      <span id="speedTxt">正常</span>
+    </label>
+    <label><input type="checkbox" id="round"> 圆角眼（仅预览试看；设备已采用方形眼）</label>
+    <button id="pause">⏸ 暂停</button>
+  </div>
+</header>
+
+<section>
+  <h2 class="sec">新候选 · 10 个</h2>
+  <div class="grid" id="gridNew"></div>
+
+  <h2 class="sec">现有表情 · 对照</h2>
+  <div class="grid" id="gridOld"></div>
+</section>
+
+<footer>
+  成本说明：<span class="badge low">低</span> 复用现有眼型，只加运动脚本/文字覆盖层 ·
+  <span class="badge mid">中</span> 需新增小位图、精灵或小幅扩展引擎（如左右眼独立）。<br>
+  每个表情就是一段 <code>rigBehaviorTick</code>（动目标姿态）+ 可选 <code>rigOverlayTick</code>（飘字/精灵），挑好后我把对应的 POSE 预设与脚本加进 <code>clawd_mochi.ino</code> 的 <code>IDLE_POOL</code>。
+</footer>
+
+<script>
+/* ───────────── 固件几何 / 颜色（与 clawd_mochi.ino 对齐） ───────────── */
+const DISP=240;
+const EYE_W=30, EYE_H=60, EYE_GAP=120, EYE_OY=40;
+const BG='#DA1100', EYE='#000000', WHITE='#ffffff';
+const BLUSH='#ff5a7a', PINK='#ff7aa2';
+// eyeLX(ox)=30+ox, 左眼心=45, 右眼心=195, eyeCY=80
+const LCX=45, RCX=195, BASE_CY=80;
+
+/* 眼型样式 */
+const RECT=0, CHEVRON=1, ARC=2, HEART=3, STAR=4;
+/* 行为 flags */
+const F_BLINK=1, F_SACCADE=2, F_BREATH=4, F_BREATH2=8;
+
+/* 位图 */
+const HEART5=[0b01010,0b11111,0b11111,0b01110,0b00100];
+const STAR7=[0b0001000,0b0011100,0b1111111,0b0111110,0b0011100,0b0010100,0b0100010];
+
+/* 弹簧物理（复刻固件 8.8 定点系数） */
+const DAMP=196/256;
+function springK(speed){ return (speed===3?72:speed===1?30:48)/256; }
+function springTo(s,target,k){ s.vel+=(target-s.cur)*k; s.vel*=DAMP; s.cur+=s.vel; }
+function springSnap(s,t){ s.cur=t; s.vel=0; }
+
+/* 眨眼 / 呼吸表 */
+const BLINK_H=[106,60,8,8,70,104,100];
+const BLINK_W=[97,105,118,118,103,98,100];
+const BREATH=[0,1,1,2,2,2,1,1,0,-1,-1,-2,-2,-2,-1,-1];
+
+/* 全局状态 */
+let SPEED=2, ROUND=false, PLAYING=true;
+let simClock=0;            // 模拟时钟(ms)，每 tick +33
+const TICK=33;
+const rand=(a,b)=>a+Math.random()*(b-a);
+const irand=(a,b)=>Math.floor(rand(a,b));
+
+/* ───────────── 绘制原语（忠实固件，作用于传入 ctx） ───────────── */
+function rect(ctx,x,y,w,h,col){ ctx.fillStyle=col; ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h)); }
+function rrect(ctx,x,y,w,h,col,r){
+  x=Math.round(x);y=Math.round(y);w=Math.round(w);h=Math.round(h);
+  r=Math.max(0,Math.min(r,w/2,h/2));
+  ctx.fillStyle=col; ctx.beginPath();
+  if(ctx.roundRect){ ctx.roundRect(x,y,w,h,r); }
+  else{ ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath(); }
+  ctx.fill();
+}
+function eyeBox(ctx,cx,cy,w,h,col){      // 矩形眼：受圆角开关影响
+  if(ROUND) rrect(ctx,cx-w/2,cy-h/2,w,h,col,Math.min(9,w/2.6,h/2.6));
+  else rect(ctx,cx-w/2,cy-h/2,w,h,col);
+}
+function line(ctx,x1,y1,x2,y2,col){ ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke(); }
+function chevron(ctx,cx,cy,arm,reach,thk,right,col){
+  for(let t=-thk;t<=thk;t++){
+    if(right){ line(ctx,cx-reach/2,cy-arm+t,cx+reach/2,cy+t,col); line(ctx,cx+reach/2,cy+t,cx-reach/2,cy+arm+t,col); }
+    else{ line(ctx,cx+reach/2,cy-arm+t,cx-reach/2,cy+t,col); line(ctx,cx-reach/2,cy+t,cx+reach/2,cy+arm+t,col); }
+  }
+}
+function happyArc(ctx,cx,cy,w,col){      // ∪ 笑眼
+  const hw=w/2;
+  for(let t=0;t<4;t++){ line(ctx,cx-hw,cy+t,cx,cy-hw/2+t,col); line(ctx,cx,cy-hw/2+t,cx+hw,cy+t,col); }
+}
+function bmpAt(ctx,bmp,cols,cx,cy,scale,col){
+  const half=(cols-1)/2;
+  for(let r=0;r<bmp.length;r++) for(let c=0;c<cols;c++)
+    if(bmp[r]&(1<<(cols-1-c))) rect(ctx,cx+(c-half)*scale,cy+(r-half)*scale,scale,scale,col);
+}
+const heartAt=(ctx,cx,cy,s,col)=>bmpAt(ctx,HEART5,5,cx,cy,s,col);
+const starAt =(ctx,cx,cy,s,col)=>bmpAt(ctx,STAR7,7,cx,cy,s,col);
+function text(ctx,str,cx,cy,size,col){
+  ctx.fillStyle=col; ctx.font=`bold ${size}px "Segoe UI",monospace`;
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(str,cx,cy);
+}
+
+/* ───────────── Rig：单个表情的引擎实例 ───────────── */
+class Rig{
+  constructor(def){
+    this.def=def;
+    this.pose={style:RECT,ox:0,oy:0,w:EYE_W,h:EYE_H,lid:0};
+    this.flags=def.flags||0;
+    this.ox={cur:0,vel:0};this.oy={cur:0,vel:0};
+    this.w={cur:EYE_W,vel:0};this.h={cur:EYE_H,vel:0};this.lid={cur:0,vel:0};
+    this.sacX=0; this.nextSac=irand(700,2000);
+    this.blinkFrame=0; this.blinkAgain=false; this.nextBlink=irand(1500,3500);
+    this.breath=0;
+    this.behNext=0; this.behStep=0;
+    this.st={};
+    if(def.init) def.init(this);
+    // 快照到目标
+    springSnap(this.ox,this.pose.ox);springSnap(this.oy,this.pose.oy);
+    springSnap(this.w,this.pose.w);springSnap(this.h,this.pose.h);springSnap(this.lid,this.pose.lid);
+  }
+  breathOff(){
+    if(!(this.flags&(F_BREATH|F_BREATH2))) return 0;
+    let v=BREATH[(this.breath>>8)&15];
+    if(this.flags&F_BREATH2) v*=2;
+    return v;
+  }
+  tick(now){
+    if(this.def.behavior) this.def.behavior(this,now);
+    const k=springK(SPEED);
+    // 扫视
+    if(this.flags&F_SACCADE){ if(now>=this.nextSac){ this.sacX=irand(-3,4); this.nextSac=now+irand(700,2000);} }
+    else this.sacX=0;
+    springTo(this.ox,this.pose.ox+this.sacX,k);
+    springTo(this.oy,this.pose.oy,k);
+    springTo(this.w,this.pose.w,k);
+    springTo(this.h,this.pose.h,k);
+    springTo(this.lid,this.pose.lid,k);
+    // 眨眼
+    if(this.blinkFrame>0){ this.blinkFrame++; if(this.blinkFrame>7){ if(this.blinkAgain){this.blinkFrame=1;this.blinkAgain=false;} else this.blinkFrame=0; } }
+    else if((this.flags&F_BLINK)&&now>=this.nextBlink){ this.blinkFrame=1; this.blinkAgain=Math.random()<0.12; this.nextBlink=now+irand(2500,6000); }
+    // 呼吸
+    if(this.flags&(F_BREATH|F_BREATH2)) this.breath+=(SPEED===1?26:SPEED===3?60:40);
+  }
+  drawEye(ctx,cx,cy,w,h,lid,right){
+    switch(this.pose.style){
+      case CHEVRON:{ const arm=(h/2)*(240-lid)/240;
+        if(arm<=3) rect(ctx,cx-w/2,cy-4,w,8,EYE); else chevron(ctx,cx,cy,arm,w,10,right,EYE); break; }
+      case ARC: happyArc(ctx,cx,cy,w,EYE); break;
+      case HEART: heartAt(ctx,cx,cy,Math.max(3,Math.min(9,Math.round(w))),EYE); break;
+      case STAR: starAt(ctx,cx,cy,Math.max(2,Math.min(7,Math.round(w))),EYE); break;
+      default:{ let vis=h*(240-lid)/240; if(vis<5)vis=5; eyeBox(ctx,cx,cy-h/2+(h-vis)+vis/2,w,vis,EYE); }
+    }
+  }
+  render(ctx){
+    ctx.fillStyle=BG; ctx.fillRect(0,0,DISP,DISP);
+    if(this.def.draw){ this.def.draw(this,ctx,simClock); }   // 完全自定义(如眨眼坏笑)
+    else{
+      let ox=this.ox.cur, oy=this.oy.cur+this.breathOff();
+      let w=Math.max(2,this.w.cur), h=Math.max(4,this.h.cur), lid=Math.max(0,Math.min(240,this.lid.cur));
+      if(this.blinkFrame>0){ h*=BLINK_H[this.blinkFrame-1]/100; w*=BLINK_W[this.blinkFrame-1]/100; if(h<4)h=4; }
+      const cy=BASE_CY+oy;
+      this.drawEye(ctx,LCX+ox,cy,w,h,lid,true);
+      this.drawEye(ctx,RCX+ox,cy,w,h,lid,false);
+    }
+    if(this.def.overlay) this.def.overlay(this,ctx,simClock);
+  }
+}
+
+/* ───────────── 覆盖层小工具 ───────────── */
+function floatGlyph(ctx,now,period,life,drawFn){   // 周期性飘出：返回 0..1 进度或 null
+  const c=now%period; if(c>life) return; drawFn(c/life);
+}
+function twinkle(ctx,cx,cy,now,phase,size){        // 闪烁小亮点(十字)
+  const on=((now/300+phase)|0)%2===0; if(!on) return;
+  rect(ctx,cx-size/2,cy-1,size,2,WHITE); rect(ctx,cx-1,cy-size/2,2,size,WHITE);
+}
+
+/* ═══════════════ 10 个新候选 ═══════════════ */
+const NEW=[
+{
+  key:'curious', name:'好奇张望', cost:'low', costNote:'RECT + 文字覆盖层',
+  desc:'眼睛快速左右张望、偶尔上抬，头顶冒出一个一跳一跳的问号。',
+  flags:F_BLINK,
+  init(r){ r.pose={style:RECT,ox:0,oy:0,w:28,h:54,lid:0}; },
+  behavior(r,now){ if(now>=r.behNext){ const seq=[-22,22,-22,0,22,0]; r.pose.ox=seq[r.behStep%seq.length]; r.pose.oy=(r.behStep%3===0)?-7:0; r.behStep++; r.behNext=now+(r.behStep%2?520:300);} },
+  overlay(r,ctx,now){ const c=now%2600; if(c<1500){ const t=c/1500; const y=44-Math.sin(t*Math.PI)*9; text(ctx,'?',120,y,30,WHITE);} }
+},
+{
+  key:'wink', name:'俏皮眨眼', cost:'mid', costNote:'左右眼独立 lid（小扩展）+ 弧形嘴',
+  desc:'一只眼睁、一只眼眯成一条线，循环切换，配一抹上扬小嘴，调皮。',
+  flags:0,
+  init(r){ r.st={t:0}; },
+  draw(r,ctx,now){
+    const winkRight=(now%2400)<1100;     // 周期性右眼眨
+    const w=30,h=56;
+    // 左眼常开(轻微挤压呼吸)
+    const bob=Math.sin(now/600)*2;
+    eyeBox(ctx,LCX,BASE_CY+bob,w,h,EYE);
+    // 右眼：开 或 一条弯线
+    if(winkRight){ // 弯眨：一条略上扬的线
+      happyArc(ctx,RCX,BASE_CY+8,30,EYE);
+    } else { eyeBox(ctx,RCX,BASE_CY+bob,w,h,EYE); }
+    // 上扬小嘴
+    happyArc(ctx,120,150,40,EYE);
+  }
+},
+{
+  key:'sparkle', name:'闪亮星星眼', cost:'mid', costNote:'新增 STAR 位图（仿 HEART5）+ 闪光点',
+  desc:'眼睛变成星星并一闪一闪地缩放，周围有亮点跳动，崇拜/兴奋。',
+  flags:F_BREATH,
+  init(r){ r.pose={style:STAR,ox:0,oy:0,w:6,h:6,lid:0}; },
+  behavior(r,now){ if(now>=r.behNext){ r.pose.w=(r.pose.w===6)?7.5:6; r.behNext=now+360; } },
+  overlay(r,ctx,now){ twinkle(ctx,LCX-22,BASE_CY-22,now,0,8); twinkle(ctx,RCX+22,BASE_CY-20,now,1,7); twinkle(ctx,120,BASE_CY-34,now,2,6); }
+},
+{
+  key:'surprised', name:'哇哦惊讶', cost:'low', costNote:'RECT 弹簧过冲 + “!” 覆盖层',
+  desc:'眼睛猛地瞪大成近方形（带弹簧回弹），头顶弹出感叹号，再慢慢缩回。',
+  flags:F_BLINK,
+  init(r){ r.pose={style:RECT,ox:0,oy:0,w:30,h:60,lid:0}; r.st={}; },
+  behavior(r,now){ const c=now%2600; if(c<900){ r.pose.w=42; r.pose.h=64; r.pose.oy=-2; } else { r.pose.w=30; r.pose.h=60; r.pose.oy=0; } },
+  overlay(r,ctx,now){ const c=now%2600; if(c<900){ const t=c/900; const s=Math.min(1,t*4); text(ctx,'!',120,40,30*s+6,WHITE);} }
+},
+{
+  key:'shy', name:'害羞脸红', cost:'mid', costNote:'RECT 下视 + 两块腮红矩形（需粉色）',
+  desc:'眼睛下垂、略微缩小并不时撇向一边，两颊浮现一闪一闪的腮红。',
+  flags:F_BLINK,
+  init(r){ r.pose={style:RECT,ox:0,oy:8,w:26,h:42,lid:30}; },
+  behavior(r,now){ if(now>=r.behNext){ r.pose.ox=(r.behStep%2)?9:-9; r.behStep++; r.behNext=now+irand(900,1500);} },
+  overlay(r,ctx,now){ const a=0.55+0.45*Math.abs(Math.sin(now/700)); ctx.globalAlpha=a;
+    rrect(ctx,22,108,30,14,BLUSH,7); rrect(ctx,188,108,30,14,BLUSH,7); ctx.globalAlpha=1; }
+},
+{
+  key:'dizzy', name:'转圈晕乎', cost:'mid', costNote:'RECT 圆周运动 + 环绕星点',
+  desc:'两眼一起画圈打转，头顶几颗小星星绕圈飞，一脸晕乎乎。',
+  flags:0,
+  init(r){ r.pose={style:RECT,ox:0,oy:0,w:26,h:40,lid:60}; },
+  behavior(r,now){ const a=now/360; r.pose.ox=Math.cos(a)*10; r.pose.oy=Math.sin(a)*6; },
+  overlay(r,ctx,now){ const cx=120,cy=26,R=20; for(let i=0;i<3;i++){ const a=now/420+i*2.09; starAt(ctx,cx+Math.cos(a)*R,cy+Math.sin(a)*R*0.6,2,WHITE);} }
+},
+{
+  key:'music', name:'摇摆听歌', cost:'mid', costNote:'ARC 笑眼 + 摇摆 + 音符精灵',
+  desc:'眯眼笑（∪∪）随节奏左右摇摆，两侧不断飘起跳动的音符。',
+  flags:F_BREATH,
+  init(r){ r.pose={style:ARC,ox:0,oy:8,w:30,h:30,lid:0}; r.behNext=0; },
+  behavior(r,now){ const sway=[-7,-4,0,4,7,4,0,-4]; if(now>=r.behNext){ r.pose.ox=sway[r.behStep&7]; r.behStep++; r.behNext=now+220;} },
+  overlay(r,ctx,now){
+    const notes=['♪','♫','♪'];
+    for(let i=0;i<2;i++){ const base=now+ i*900; const c=base%1800; const t=c/1800;
+      const x=(i===0?34:206)+Math.sin(t*6)*4; const y=150-t*70;
+      ctx.globalAlpha=1-t; text(ctx,notes[(base/1800|0)%3],x,y,22,WHITE); ctx.globalAlpha=1; } }
+},
+{
+  key:'yawn', name:'打哈欠', cost:'mid', costNote:'RECT lid 脚本 + 嘴“O”覆盖层',
+  desc:'眼睛慢慢眯起、张开大“O”嘴打个哈欠，再放松眨眨眼，困倦又可爱。',
+  flags:F_BREATH2,
+  init(r){ r.pose={style:RECT,ox:0,oy:0,w:30,h:56,lid:0}; },
+  behavior(r,now){ const c=now%3400;
+    if(c<1700){ const t=c/1700; r.pose.lid=40+200*Math.sin(t*Math.PI); r.pose.h=56-18*Math.sin(t*Math.PI); }
+    else { r.pose.lid=0; r.pose.h=56; } },
+  overlay(r,ctx,now){ const c=now%3400; if(c<1700){ const t=c/1700; const m=Math.sin(t*Math.PI); const w=10+30*m,h=8+34*m;
+    rrect(ctx,120-w/2,150-h/2,w,h,'#3a0500',Math.min(w,h)/2); } }
+},
+{
+  key:'lovestruck', name:'花痴飘心', cost:'low', costNote:'复用 HEART + 上升爱心精灵',
+  desc:'爱心眼一跳一跳，两侧不断升起小爱心并慢慢淡出，花痴满满。',
+  flags:0,
+  init(r){ r.pose={style:HEART,ox:0,oy:0,w:6,h:6,lid:0}; },
+  behavior(r,now){ if(now>=r.behNext){ r.pose.w=(r.pose.w===6)?7:6; r.behNext=now+500;} },
+  overlay(r,ctx,now){ for(let i=0;i<3;i++){ const base=now+i*700; const c=base%2100; const t=c/2100;
+    const x=(i%2?RCX:LCX)+Math.sin(t*5+i)*6; const y=BASE_CY-10-t*54;
+    ctx.globalAlpha=1-t; heartAt(ctx,x,y,3,EYE); ctx.globalAlpha=1; } }
+},
+{
+  key:'giggle', name:'偷笑', cost:'mid', costNote:'ARC 笑眼 + 抖动脚本 + 笑纹',
+  desc:'∪∪ 笑眼快速上下抖动像在憋笑，两侧带几道小笑纹。',
+  flags:0,
+  init(r){ r.pose={style:ARC,ox:0,oy:8,w:30,h:30,lid:0}; },
+  behavior(r,now){ const c=now%2200; if(c<1100){ r.pose.oy=8+(((now/90)|0)%2?-3:3);} else { r.pose.oy=8; } },
+  overlay(r,ctx,now){ const c=now%2200; if(c<1100){ ctx.strokeStyle=WHITE;ctx.lineWidth=2;
+    for(let i=0;i<2;i++){ const x=22+i*8; line(ctx,x,64+i*6,x-7,60+i*6,WHITE); const x2=218-i*8; line(ctx,x2,64+i*6,x2+7,60+i*6,WHITE);} } }
+}
+];
+
+/* ═══════════════ 现有 4 个（对照） ═══════════════ */
+const OLD=[
+{ key:'o-normal', name:'普通眼', legacy:true, desc:'方块眼 + 眨眼 / 呼吸 / 微扫视', flags:F_BLINK|F_SACCADE|F_BREATH,
+  init(r){ r.pose={style:RECT,ox:0,oy:0,w:EYE_W,h:EYE_H,lid:0}; } },
+{ key:'o-sleepy', name:'困倦', legacy:true, desc:'半闭眼下垂 + 眼上方飘 Z（从左到右、逐个变大）', flags:F_BREATH2,
+  init(r){ r.pose={style:RECT,ox:0,oy:8,w:EYE_W,h:EYE_H,lid:170}; },
+  overlay(r,ctx,now){ const z=1+((now/1400|0)%3); const bx=DISP/2-30, by=10;
+    ctx.fillStyle=WHITE; ctx.textAlign='left'; ctx.textBaseline='top';
+    for(let i=0;i<z;i++){ ctx.font='bold '+(8*(i+1))+'px monospace'; ctx.fillText('z', bx+i*18, by + (2-i)*12); } } },
+{ key:'o-heart', name:'爱心眼', legacy:true, desc:'爱心眼 + 心跳脉冲', flags:0,
+  init(r){ r.pose={style:HEART,ox:0,oy:0,w:6,h:6,lid:0}; },
+  behavior(r,now){ if(now>=r.behNext){ r.pose.w=(r.pose.w===6)?7:6; r.behNext=now+600;} } },
+{ key:'o-happy', name:'开心弧眼', legacy:true, desc:'∪∪ 笑眼 + 缓动摇摆 + 偶发星星', flags:F_BREATH,
+  init(r){ r.pose={style:ARC,ox:0,oy:8,w:30,h:30,lid:0}; },
+  behavior(r,now){ const sway=[-6,-3,0,3,6,3,0,-3]; if(now>=r.behNext){ r.pose.ox=sway[r.behStep&7]; r.behStep++; r.behNext=now+260;} },
+  overlay(r,ctx,now){ if((now%3600)<450){ rect(ctx,LCX-18,BASE_CY-16,4,4,WHITE); rect(ctx,RCX+14,BASE_CY-14,3,3,WHITE);} } }
+];
+
+/* ───────────── 构建页面 ───────────── */
+const rigs=[];
+function buildCard(def,idx,isNew){
+  const card=document.createElement('div');
+  card.className='card'+(def.legacy?' legacy':'');
+  const cv=document.createElement('canvas'); cv.width=DISP; cv.height=DISP;
+  const name=document.createElement('div'); name.className='name';
+  let inner='';
+  if(isNew) inner+=`<span class="num">${idx+1}.</span>`;
+  inner+=def.name;
+  if(def.cost) inner+=`<span class="badge ${def.cost}">${def.cost==='low'?'低':'中'}</span>`;
+  name.innerHTML=inner;
+  const desc=document.createElement('div'); desc.className='desc'; desc.textContent=def.desc||'';
+  card.appendChild(cv); card.appendChild(name); card.appendChild(desc);
+  if(def.costNote){ const n=document.createElement('div'); n.className='note'; n.textContent='实现：'+def.costNote; card.appendChild(n); }
+  const ctx=cv.getContext('2d');
+  rigs.push({rig:new Rig(def),ctx});
+  return card;
+}
+const gN=document.getElementById('gridNew'), gO=document.getElementById('gridOld');
+NEW.forEach((d,i)=>gN.appendChild(buildCard(d,i,true)));
+OLD.forEach((d,i)=>gO.appendChild(buildCard(d,i,false)));
+
+/* ───────────── 主循环：固定 33ms 步进 ───────────── */
+let last=null, acc=0;
+function loop(ts){
+  if(last===null) last=ts;
+  let dt=ts-last; last=ts;
+  if(PLAYING){
+    acc+=dt; if(acc>200) acc=200;
+    while(acc>=TICK){ simClock+=TICK; for(const r of rigs) r.rig.tick(simClock); acc-=TICK; }
+    for(const r of rigs) r.rig.render(r.ctx);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ───────────── 控件 ───────────── */
+document.getElementById('speed').addEventListener('input',e=>{ SPEED=+e.target.value;
+  document.getElementById('speedTxt').textContent=SPEED===1?'慢':SPEED===3?'快':'正常'; });
+document.getElementById('round').addEventListener('change',e=>ROUND=e.target.checked);
+document.getElementById('pause').addEventListener('click',e=>{ PLAYING=!PLAYING; e.target.textContent=PLAYING?'⏸ 暂停':'▶ 播放'; });
+</script>
+</body>
+</html>
