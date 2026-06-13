@@ -61,7 +61,7 @@ String   savedPASS    = "";
 #define EYE_OY  40    // vertical offset upward (subtracted from centre)
 
 // ── Colours ───────────────────────────────────────────────────
-uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
+uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN, C_BLUSH;
 #define C_WHITE ST77XX_WHITE
 #define C_BLACK ST77XX_BLACK
 
@@ -79,17 +79,50 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 #define MON_ALERT    3
 #define MON_OFFLINE  4
 
-#define IDLE_NORMAL  0
-#define IDLE_SLEEPY  1
-#define IDLE_HEART   2
-#define IDLE_HAPPY   3
+#define IDLE_NORMAL    0
+#define IDLE_SLEEPY    1
+#define IDLE_HEART     2
+#define IDLE_HAPPY     3
+#define IDLE_CURIOUS   4   // 好奇张望 + ?
+#define IDLE_WINK      5   // 俏皮眨眼(右眼闭) + 小嘴
+#define IDLE_SPARKLE   6   // 星星眼 + 闪光
+#define IDLE_SURPRISED 7   // 瞪大 + !
+#define IDLE_SHY       8   // 害羞 + 腮红
+#define IDLE_DIZZY     9   // 转圈 + 头顶星
+#define IDLE_MUSIC     10  // 摇摆 + 音符
+#define IDLE_YAWN      11  // 打哈欠 + O 嘴
+#define IDLE_LOVE      12  // 花痴 + 飘心
+#define IDLE_GIGGLE    13  // 偷笑 + 笑纹
 
 #define SCAN_EYE_W   20
-#define IDLE_SWITCH_MIN_MS 15000
-#define IDLE_SWITCH_MAX_MS 45000
+#define IDLE_SWITCH_MS 30000   // 空闲表情每 30 秒随机切换一次
 
-const uint8_t IDLE_POOL[] = { IDLE_NORMAL, IDLE_SLEEPY, IDLE_HEART, IDLE_HAPPY };
-#define IDLE_POOL_SIZE 4
+const uint8_t IDLE_POOL[] = {
+  IDLE_NORMAL, IDLE_SLEEPY, IDLE_HEART, IDLE_HAPPY,
+  IDLE_CURIOUS, IDLE_WINK, IDLE_SPARKLE, IDLE_SURPRISED, IDLE_SHY,
+  IDLE_DIZZY, IDLE_MUSIC, IDLE_YAWN, IDLE_LOVE, IDLE_GIGGLE
+};
+#define IDLE_POOL_SIZE 14
+
+// ── 情绪引擎:4 种治愈系心情,各圈定一组 idle 表情 ──────────────
+// 心情只在 idle 体现:按当前心情在对应子集里轮播。energy(工作降/空闲升)+joy(done加分/衰减)判定。
+#define MOOD_FOCUSED  0   // 专注:正常工作节奏
+#define MOOD_TIRED    1   // 疲惫:长时间连续干活
+#define MOOD_CHEERFUL 2   // 雀跃:刚连续完成几件事
+#define MOOD_COZY     3   // 惬意:放松的默认态(空闲)
+const uint8_t MOOD_FOCUSED_POOL[]  = { IDLE_NORMAL, IDLE_CURIOUS, IDLE_WINK };               // 普通/好奇/眨眼
+const uint8_t MOOD_TIRED_POOL[]    = { IDLE_SLEEPY, IDLE_YAWN, IDLE_DIZZY };                 // 困倦/哈欠/转圈
+const uint8_t MOOD_CHEERFUL_POOL[] = { IDLE_HAPPY, IDLE_SPARKLE, IDLE_GIGGLE, IDLE_MUSIC, IDLE_SURPRISED }; // 开心/星星眼/偷笑/听歌/惊讶
+const uint8_t MOOD_COZY_POOL[]     = { IDLE_HEART, IDLE_LOVE, IDLE_GIGGLE, IDLE_MUSIC, IDLE_SHY };         // 爱心/花痴/偷笑/听歌/害羞
+
+// 情绪累积速率(每分钟)与阈值,均可调
+#define ENERGY_DRAIN_PER_MIN   2.5f   // 工作/思考:~28min 降到疲惫阈值
+#define ENERGY_RECOVER_PER_MIN 7.0f   // 空闲:回血更快
+#define JOY_DECAY_PER_MIN      4.0f
+#define JOY_PER_DONE           30
+#define MOOD_CHEERFUL_JOY      50      // joy≥此值→雀跃(需连续~2次 done)
+#define MOOD_TIRED_ENERGY      30      // energy≤此值→疲惫
+#define MOOD_FOCUSED_WINDOW_MS 180000UL  // 最近3分钟有活动→专注
 
 // ── Working sub-acts (semantic working states) ───────────────
 #define ACT_WORK  0
@@ -116,6 +149,13 @@ uint8_t  currentIdleIndex = 0;
 uint8_t  currentIdleExpr  = IDLE_NORMAL;
 unsigned long lastStatusMs = 0;
 unsigned long lastIdleSwitch = 0;
+
+// 情绪引擎状态
+uint8_t  currentMood   = MOOD_COZY;
+float    moodEnergy    = 80.0f;     // 0..100
+float    moodJoy       = 0.0f;      // 0..100
+unsigned long lastMoodTick  = 0;    // 上次情绪更新
+unsigned long lastActiveMs  = 0;    // 上次 thinking/working 的时刻(判"最近有活动")
 
 #define BOOT_CONFIRM_MS 3000   // 已连上家庭 WiFi:显示 IP 确认 3s 后进表情
 unsigned long bootScreenDeadline = 0;   // >0 = 信息屏确认倒计时中(仅"已连上"用);0 = 常驻
@@ -145,7 +185,7 @@ uint16_t animBgColor  = 0;   // background for eye/logo animations
 uint16_t drawBgColor  = 0;   // background for canvas
 
 // ── Eye rig: lively expression engine ────────────────────────
-enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART };
+enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART, STYLE_STAR };
 
 struct EyePose {
   EyeStyle style;
@@ -184,6 +224,7 @@ bool rigZoneCleared = false;   // 本帧是否清过表情区(供覆盖层重绘
 
 unsigned long rigBehNextMs = 0;   // 行为脚本计时(表情切换时复位)
 uint8_t       rigBehStep   = 0;
+bool          idleRightWink = false;   // WINK 表情:右眼当前是否闭合(由行为脚本驱动)
 
 #define RIG_TICK_MS  33
 #define RIG_DAMP     196       // 速度阻尼(/256)
@@ -207,12 +248,23 @@ const EyePose POSE_NORMAL = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
 const EyePose POSE_SLEEPY = {STYLE_RECT,    0,  8, EYE_W, EYE_H, 170};
 const EyePose POSE_HEART  = {STYLE_HEART,   0,  0, 6, 6, 0};
 const EyePose POSE_HAPPY  = {STYLE_ARC,     0,  8, 30, 30, 0};
-const EyePose POSE_THINK  = {STYLE_CHEVRON, 0,  0, EYE_W / 2, EYE_H, 0};
+const EyePose POSE_THINK  = {STYLE_RECT,    0, 10, EYE_W, 30, 0};   // 微眯下垂平眼,配上方省略号(thinkingDotsOverlay)
 const EyePose POSE_SCAN   = {STYLE_RECT,    0,  0, SCAN_EYE_W, EYE_H, 0};
 const EyePose POSE_READ   = {STYLE_RECT,    0, 26, 26, 16, 0};
 const EyePose POSE_EDIT   = {STYLE_RECT, -13, 12, 20, 34, 40};
 const EyePose POSE_RUN    = {STYLE_RECT,    0,  0, 14, 44, 0};
 const EyePose POSE_NET    = {STYLE_RECT,    0,  0, EYE_W, EYE_H, 0};
+// ── 新空闲表情姿态预设(行为脚本在 rigBehaviorTick,覆盖层在 idleNewOverlay) ──
+const EyePose POSE_CURIOUS   = {STYLE_RECT, 0, 0, 28, 54, 0};
+const EyePose POSE_WINK      = {STYLE_RECT, 0, 0, EYE_W, 56, 0};
+const EyePose POSE_SPARKLE   = {STYLE_STAR, 0, 0, 7, 7, 0};
+const EyePose POSE_SURPRISED = {STYLE_RECT, 0, 0, EYE_W, EYE_H, 0};
+const EyePose POSE_SHY       = {STYLE_RECT, 0, 6, 24, 42, 30};
+const EyePose POSE_DIZZY     = {STYLE_RECT, 0, 0, 26, 40, 60};
+const EyePose POSE_MUSIC     = {STYLE_ARC,  0, 8, 30, 30, 0};
+const EyePose POSE_YAWN      = {STYLE_RECT, 0, 0, EYE_W, 56, 0};
+const EyePose POSE_LOVE      = {STYLE_HEART, 0, 0, 6, 6, 0};
+const EyePose POSE_GIGGLE    = {STYLE_ARC,  0, 8, 30, 30, 0};
 
 // ── Terminal ──────────────────────────────────────────────────
 #define TERM_COLS      15
@@ -362,6 +414,7 @@ void initColours() {
   C_DARKBG = tft.color565(10,  12,  16);
   C_MUTED  = tft.color565(90,  88,  86);
   C_GREEN  = tft.color565(80, 220, 130);
+  C_BLUSH  = tft.color565(255, 92, 120);   // 害羞腮红(粉)
   animBgColor = C_ORANGE;
   drawBgColor = C_ORANGE;
 }
@@ -604,15 +657,37 @@ inline int16_t scanEyeLX(int16_t ox) {
 }
 inline int16_t scanEyeRX(int16_t ox) { return scanEyeLX(ox) + SCAN_EYE_W + EYE_GAP; }
 
+const uint8_t HEART5[5] = { 0b01010, 0b11111, 0b11111, 0b01110, 0b00100 };
+const uint8_t STAR7[7]  = { 0b0001000, 0b0011100, 0b1111111, 0b0111110, 0b0011100, 0b0010100, 0b0100010 };
+
 void drawHeartAt(int16_t cx, int16_t cy, uint8_t scale, uint16_t col) {
-  static const uint8_t HEART5[5] = { 0b01010, 0b11111, 0b11111, 0b01110, 0b00100 };
-  for (int8_t row = 0; row < 5; row++) {
-    for (int8_t c = 0; c < 5; c++) {
-      if (HEART5[row] & (1 << (4 - c))) {
+  for (int8_t row = 0; row < 5; row++)
+    for (int8_t c = 0; c < 5; c++)
+      if (HEART5[row] & (1 << (4 - c)))
         tft.fillRect(cx + (c - 2) * scale, cy + (row - 2) * scale, scale, scale, col);
-      }
-    }
-  }
+}
+
+void drawStarAt(int16_t cx, int16_t cy, uint8_t scale, uint16_t col) {
+  for (int8_t row = 0; row < 7; row++)
+    for (int8_t c = 0; c < 7; c++)
+      if (STAR7[row] & (1 << (6 - c)))
+        tft.fillRect(cx + (c - 3) * scale, cy + (row - 3) * scale, scale, scale, col);
+}
+
+// 单次整块写入位图眼:在内存(GFXcanvas16)拼好"背景+图形"再一次性推屏,每像素只写一次最终色,
+// 彻底消除"先刷背景再画黑"造成的脉动闪烁。n=位图边长(5/7),起点对齐 draw*At 的格点。
+void blitBitmapEye(const uint8_t* bmp, uint8_t n, int16_t cx, int16_t cy, uint8_t scale,
+                   uint16_t fg, uint16_t bg, EyeRect &out) {
+  const int16_t W = (int16_t)n * scale, H = (int16_t)n * scale;
+  const int16_t x0 = cx - (n / 2) * scale, y0 = cy - (n / 2) * scale;
+  GFXcanvas16 cv(W, H);
+  cv.fillScreen(bg);
+  for (uint8_t row = 0; row < n; row++)
+    for (uint8_t c = 0; c < n; c++)
+      if (bmp[row] & (1 << (n - 1 - c)))
+        cv.fillRect(c * scale, row * scale, scale, scale, fg);
+  tft.drawRGBBitmap(x0, y0, cv.getBuffer(), W, H);
+  out = {x0, y0, W, H, true};
 }
 
 void drawHappyArc(int16_t cx, int16_t cy, int16_t w, uint16_t col) {
@@ -845,38 +920,46 @@ void rigTick(unsigned long now) {
   }
 }
 
+// col 通常为 C_BLACK;传 animBgColor 时即"按字形精确擦除"(重画同一字形为背景色)。
 void drawRigEye(int16_t cx, int16_t cy, int16_t w, int16_t h, int16_t lid,
-                bool rightFacing, EyeRect &out) {
+                bool rightFacing, uint16_t col, EyeRect &out) {
   switch (rig.drawnStyle) {
     case STYLE_CHEVRON: {
       const int16_t arm = ((h / 2) * (240 - lid)) / 240;
       if (arm <= 3) {
-        tft.fillRect(cx - w / 2, cy - 4, w, 8, C_BLACK);
+        tft.fillRect(cx - w / 2, cy - 4, w, 8, col);
         out = {(int16_t)(cx - w / 2), (int16_t)(cy - 4), w, 8, true};
       } else {
-        drawChevron(cx, cy, arm, w, 10, rightFacing, C_BLACK);
+        drawChevron(cx, cy, arm, w, 10, rightFacing, col);
         out = {(int16_t)(cx - w / 2 - 2), (int16_t)(cy - arm - 12),
                (int16_t)(w + 4), (int16_t)(arm * 2 + 24), true};
       }
       break;
     }
     case STYLE_ARC:
-      drawHappyArc(cx, cy, w, C_BLACK);
+      drawHappyArc(cx, cy, w, col);
       out = {(int16_t)(cx - w / 2), (int16_t)(cy - w / 4 - 2),
              (int16_t)(w + 2), (int16_t)(w / 4 + 8), true};
       break;
     case STYLE_HEART: {
       uint8_t scale = (uint8_t)((w < 3) ? 3 : ((w > 9) ? 9 : w));
-      drawHeartAt(cx, cy, scale, C_BLACK);
+      drawHeartAt(cx, cy, scale, col);
       out = {(int16_t)(cx - scale * 3), (int16_t)(cy - scale * 3),
              (int16_t)(scale * 6), (int16_t)(scale * 6), true};
+      break;
+    }
+    case STYLE_STAR: {
+      uint8_t scale = (uint8_t)((w < 2) ? 2 : ((w > 7) ? 7 : w));
+      drawStarAt(cx, cy, scale, col);
+      out = {(int16_t)(cx - scale * 4), (int16_t)(cy - scale * 4),
+             (int16_t)(scale * 8), (int16_t)(scale * 8), true};
       break;
     }
     default: {  // STYLE_RECT — 眼睑自上而下
       int16_t vis = (int16_t)((int32_t)h * (240 - lid) / 240);
       if (vis < 5) vis = 5;
       const int16_t top = cy - h / 2 + (h - vis);
-      tft.fillRect(cx - w / 2, top, w, vis, C_BLACK);
+      tft.fillRect(cx - w / 2, top, w, vis, col);
       out = {(int16_t)(cx - w / 2), top, w, vis, true};
       break;
     }
@@ -919,11 +1002,13 @@ void drawRig() {
 
   static int16_t lastOx = -32768, lastOy = 0, lastW = 0, lastH = 0, lastLid = 0;
   static uint8_t lastStyle = 255;
+  static bool    lastWink  = false;
 
+  const bool winkNow = (monitorState == MON_IDLE && currentIdleExpr == IDLE_WINK && idleRightWink);
   rigZoneCleared = false;
   const bool unchanged = !rig.zoneDirty && rig.prevValid &&
       ox == lastOx && oy == lastOy && w == lastW && h == lastH &&
-      lid == lastLid && (uint8_t)rig.drawnStyle == lastStyle;
+      lid == lastLid && (uint8_t)rig.drawnStyle == lastStyle && winkNow == lastWink;
   if (unchanged) return;          // 无任何变化:整帧跳过,不碰屏幕
 
   if (rig.zoneDirty) {
@@ -936,33 +1021,61 @@ void drawRig() {
   const int16_t cy = eyeCY() + oy;
 
   if (rig.drawnStyle == STYLE_RECT) {
-    // 矩形眼:增量重绘——只擦旧矩形露出的边条,黑色区域直接覆盖
+    // 矩形眼:增量重绘——只擦旧矩形露出的边条,黑色主体直接覆盖。左右眼分别计算(WINK 右眼闭)
     int16_t vis = (int16_t)((int32_t)h * (240 - lid) / 240);
     if (vis < 5) vis = 5;
-    const int16_t top = cy - h / 2 + (h - vis);
+    int16_t top = cy - h / 2 + (h - vis);
+    int16_t visL = vis, topL = top, visR = vis, topR = top;
+    const bool winkClosed = (monitorState == MON_IDLE && currentIdleExpr == IDLE_WINK && idleRightWink);
+    if (winkClosed) { visR = 10; topR = cy - 5; }   // 右眼眯成横条
     const int16_t lx = rigLCX(ox) - w / 2;
     const int16_t rx = rigRCX(ox) - w / 2;
     if (rig.prevValid) {
-      eraseRectOutside(rig.prevL, lx, top, w, vis);
-      eraseRectOutside(rig.prevR, rx, top, w, vis);
+      eraseRectOutside(rig.prevL, lx, topL, w, visL);
+      eraseRectOutside(rig.prevR, rx, topR, w, visR);
     }
-    tft.fillRect(lx, top, w, vis, C_BLACK);
-    tft.fillRect(rx, top, w, vis, C_BLACK);
-    rig.prevL = {lx, top, w, vis, true};
-    rig.prevR = {rx, top, w, vis, true};
-  } else {
-    // 字形眼(chevron/弧线/爱心):擦旧包围盒后重绘——仅参数变化帧才会走到这里
+    tft.fillRect(lx, topL, w, visL, C_BLACK);
+    tft.fillRect(rx, topR, w, visR, C_BLACK);
+    rig.prevL = {lx, topL, w, visL, true};
+    rig.prevR = {rx, topR, w, visR, true};
+  } else if (rig.drawnStyle == STYLE_HEART || rig.drawnStyle == STYLE_STAR) {
+    // 密集位图眼(爱心/星星):原地脉动时前后图案重叠多,"擦旧+画新"在重叠像素会闪。
+    // 改为:擦掉旧包围盒露出的部分(实心,不闪),再单次整块写入新位图(每像素只写一次,零闪)。
+    const uint8_t  n   = (rig.drawnStyle == STYLE_HEART) ? 5 : 7;
+    const uint8_t* bmp = (rig.drawnStyle == STYLE_HEART) ? HEART5 : STAR7;
+    const uint8_t  scale = (rig.drawnStyle == STYLE_HEART)
+                             ? (uint8_t)((w < 3) ? 3 : ((w > 9) ? 9 : w))
+                             : (uint8_t)((w < 2) ? 2 : ((w > 7) ? 7 : w));
+    const int16_t W = (int16_t)n * scale;
+    const int16_t lx0 = rigLCX(ox) - (n / 2) * scale, rx0 = rigRCX(ox) - (n / 2) * scale;
+    const int16_t y0  = cy - (n / 2) * scale;
     if (rig.prevValid) {
+      eraseRectOutside(rig.prevL, lx0, y0, W, W);
+      eraseRectOutside(rig.prevR, rx0, y0, W, W);
+    }
+    blitBitmapEye(bmp, n, rigLCX(ox), cy, scale, C_BLACK, animBgColor, rig.prevL);
+    blitBitmapEye(bmp, n, rigRCX(ox), cy, scale, C_BLACK, animBgColor, rig.prevR);
+  } else {
+    // 线条字形眼(chevron/弧线):仅参数变化帧走到这里。
+    // 用背景色按"上一帧同字形"精确重画来擦除(只抹旧笔画),而非整框刷背景——
+    // 整框刷会让整块包围盒先变背景色再画黑,造成可见闪烁。
+    EyeRect dump;
+    if (rig.prevValid && lastStyle == (uint8_t)rig.drawnStyle && lastOx != -32768) {
+      const int16_t pcy = eyeCY() + lastOy;
+      drawRigEye(rigLCX(lastOx), pcy, lastW, lastH, lastLid, true,  animBgColor, dump);
+      drawRigEye(rigRCX(lastOx), pcy, lastW, lastH, lastLid, false, animBgColor, dump);
+    } else if (rig.prevValid) {            // 样式不匹配的兜底:整框擦一次
       tft.fillRect(rig.prevL.x - 2, rig.prevL.y - 2, rig.prevL.w + 4, rig.prevL.h + 4, animBgColor);
       tft.fillRect(rig.prevR.x - 2, rig.prevR.y - 2, rig.prevR.w + 4, rig.prevR.h + 4, animBgColor);
     }
-    drawRigEye(rigLCX(ox), cy, w, h, lid, true,  rig.prevL);
-    drawRigEye(rigRCX(ox), cy, w, h, lid, false, rig.prevR);
+    drawRigEye(rigLCX(ox), cy, w, h, lid, true,  C_BLACK, rig.prevL);
+    drawRigEye(rigRCX(ox), cy, w, h, lid, false, C_BLACK, rig.prevR);
   }
   rig.prevValid = true;
 
   lastOx = ox; lastOy = oy; lastW = w; lastH = h; lastLid = lid;
   lastStyle = (uint8_t)rig.drawnStyle;
+  lastWink = winkNow;
 }
 
 // ── 表情选择:状态 → 姿态 + 行为标志 ──────────────────────────
@@ -972,9 +1085,19 @@ void rigApplyExpression(bool snap) {
 
   if (monitorState == MON_IDLE) {
     switch (currentIdleExpr) {
-      case IDLE_SLEEPY: p = POSE_SLEEPY; f = RIG_BREATH2;  break;
-      case IDLE_HEART:  p = POSE_HEART;  f = 0;            break;
-      case IDLE_HAPPY:  p = POSE_HAPPY;  f = RIG_BREATH;   break;
+      case IDLE_SLEEPY:    p = POSE_SLEEPY;    f = RIG_BREATH2; break;
+      case IDLE_HEART:     p = POSE_HEART;     f = 0;           break;
+      case IDLE_HAPPY:     p = POSE_HAPPY;     f = RIG_BREATH;  break;
+      case IDLE_CURIOUS:   p = POSE_CURIOUS;   f = RIG_BLINK;   break;
+      case IDLE_WINK:      p = POSE_WINK;      f = RIG_BREATH;  break;
+      case IDLE_SPARKLE:   p = POSE_SPARKLE;   f = RIG_BREATH;  break;
+      case IDLE_SURPRISED: p = POSE_SURPRISED; f = RIG_BLINK;   break;
+      case IDLE_SHY:       p = POSE_SHY;       f = RIG_BLINK;   break;
+      case IDLE_DIZZY:     p = POSE_DIZZY;     f = 0;           break;
+      case IDLE_MUSIC:     p = POSE_MUSIC;     f = RIG_BREATH;  break;
+      case IDLE_YAWN:      p = POSE_YAWN;      f = RIG_BREATH2; break;
+      case IDLE_LOVE:      p = POSE_LOVE;      f = 0;           break;
+      case IDLE_GIGGLE:    p = POSE_GIGGLE;    f = 0;           break;
       default: break;
     }
   } else if (monitorState == MON_THINKING) {
@@ -987,6 +1110,8 @@ void rigApplyExpression(bool snap) {
       case ACT_NET:  p = POSE_NET;  f = RIG_BLINK; break;
       default:       p = POSE_SCAN; f = 0;         break;
     }
+  } else if (monitorState == MON_ALERT) {
+    p = POSE_SURPRISED; f = RIG_BLINK | RIG_BREATH;   // 警觉表情,配上方 "!" 角标(alertBadgeOverlay)
   }
 
   // 表情身份去重:同一表情的重复推送不打断行为脚本
@@ -1019,16 +1144,66 @@ void rigBehaviorTick(unsigned long now) {
         if (now >= rigBehNextMs) { rig.pose.ox = sway[rigBehStep & 7]; rigBehStep++; rigBehNextMs = now + 260; }
         break;
       }
+      case IDLE_CURIOUS: {                // 东张西望 + 偶尔上抬
+        static const int8_t darts[6] = {-22, 22, -22, 0, 22, 0};
+        if (now >= rigBehNextMs) {
+          rig.pose.ox = darts[rigBehStep % 6];
+          rig.pose.oy = (rigBehStep % 3 == 0) ? -7 : 0;
+          rigBehStep++;
+          rigBehNextMs = now + ((rigBehStep & 1) ? 520 : 300);
+        }
+        break;
+      }
+      case IDLE_WINK:                     // 右眼周期性眨(drawRig 据此画横条)
+        idleRightWink = (now % 2400) < 1100;
+        break;
+      case IDLE_SPARKLE:                  // 星星眼缩放闪烁
+        if (now >= rigBehNextMs) { rig.pose.w = (rig.pose.w <= 6) ? 8 : 6; rigBehNextMs = now + 360; }
+        break;
+      case IDLE_SURPRISED: {              // 猛地瞪大(弹簧回弹),再缩回
+        const bool pop = (now % 2600) < 900;
+        rig.pose.w  = pop ? 42 : EYE_W;
+        rig.pose.h  = pop ? 64 : EYE_H;
+        rig.pose.oy = pop ? -2 : 0;
+        break;
+      }
+      case IDLE_SHY:                      // 不时撇视
+        if (now >= rigBehNextMs) { rig.pose.ox = (rigBehStep & 1) ? 9 : -9; rigBehStep++; rigBehNextMs = now + 900 + random(600); }
+        break;
+      case IDLE_DIZZY: {                  // 双眼画圈
+        const double a = now / 360.0;
+        rig.pose.ox = (int16_t)(cos(a) * 10);
+        rig.pose.oy = (int16_t)(sin(a) * 6);
+        break;
+      }
+      case IDLE_MUSIC: {                  // 随拍摇摆
+        static const int8_t sway2[8] = {-7, -4, 0, 4, 7, 4, 0, -4};
+        if (now >= rigBehNextMs) { rig.pose.ox = sway2[rigBehStep & 7]; rigBehStep++; rigBehNextMs = now + 220; }
+        break;
+      }
+      case IDLE_YAWN: {                   // 眯眼打哈欠(配合 O 嘴覆盖层)
+        const unsigned long c = now % 3400;
+        if (c < 1700) {
+          const double m = sin((double)c / 1700.0 * PI);
+          rig.pose.lid = (int16_t)(40 + 200 * m);
+          rig.pose.h   = (int16_t)(56 - 18 * m);
+        } else { rig.pose.lid = 0; rig.pose.h = 56; }
+        break;
+      }
+      case IDLE_LOVE:                     // 爱心跳动
+        if (now >= rigBehNextMs) { rig.pose.w = (rig.pose.w == 6) ? 7 : 6; rig.pose.h = rig.pose.w; rigBehNextMs = now + 500; }
+        break;
+      case IDLE_GIGGLE: {                 // 憋笑上下抖
+        const unsigned long c = now % 2200;
+        rig.pose.oy = (c < 1100) ? (8 + (((now / 90) & 1) ? -3 : 3)) : 8;
+        break;
+      }
       default: break;                     // 普通/困倦:噪声层足够
     }
     return;
   }
 
-  if (monitorState == MON_THINKING) {     // chevron 开合
-    if (now >= rigBehNextMs) {
-      rig.pose.lid = (rig.pose.lid == 0) ? 240 : 0;
-      rigBehNextMs = now + 900;
-    }
+  if (monitorState == MON_THINKING) {     // 平眼保持平静(动效交给上方省略号 thinkingDotsOverlay)
     return;
   }
 
@@ -1062,6 +1237,254 @@ void rigBehaviorTick(unsigned long now) {
   }
 }
 
+// ── 新空闲表情覆盖层(飘字/精灵):签名门控 + 记录上一帧矩形按需擦除 ──
+#define OV_MAX 6
+int16_t  ovRx[OV_MAX], ovRy[OV_MAX], ovRw[OV_MAX], ovRh[OV_MAX];
+uint8_t  ovRn   = 0;            // 上一帧绘制的精灵矩形数
+uint32_t ovSig  = 0xFFFFFFFF;   // 上一帧签名(不变则跳过,避免静态闪烁)
+uint8_t  ovExpr = 255;          // 上一帧的 idle 表情
+
+void ovEraseAll() {
+  for (uint8_t i = 0; i < ovRn; i++) tft.fillRect(ovRx[i], ovRy[i], ovRw[i], ovRh[i], animBgColor);
+  ovRn = 0;
+}
+void ovMark(int16_t x, int16_t y, int16_t w, int16_t h) {
+  if (ovRn >= OV_MAX) return;
+  ovRx[ovRn] = x; ovRy[ovRn] = y; ovRw[ovRn] = w; ovRh[ovRn] = h; ovRn++;
+}
+void ovText(const char* s, int16_t cx, int16_t topY, uint8_t size, uint16_t col) {
+  const int16_t w = (int16_t)strlen(s) * 6 * size, h = 8 * size, x = cx - w / 2;
+  tft.setTextSize(size); tft.setTextColor(col); tft.setCursor(x, topY); tft.print(s);
+  tft.setTextSize(1);
+  ovMark(x - 2, topY - 2, w + 4, h + 4);
+}
+void ovNote(int16_t x, int16_t y, uint16_t col) {   // 简易八分音符:符头 + 符干
+  tft.fillRect(x, y, 6, 4, col);
+  tft.fillRect(x + 5, y - 12, 2, 14, col);
+  ovMark(x - 1, y - 13, 10, 20);
+}
+
+// 仅服务 idle 新表情(>=IDLE_CURIOUS)。眼睛由 drawRig 先画,这里画其上的飘字/精灵,位置一律避开眼睛矩形。
+void idleNewOverlay(unsigned long now) {
+  const bool active = (currentView == VIEW_MONITOR && monitorState == MON_IDLE
+                       && currentIdleExpr >= IDLE_CURIOUS && rig.trans == 0);
+  if (!active) {
+    if (ovExpr != 255) { ovEraseAll(); ovExpr = 255; ovSig = 0xFFFFFFFF; }
+    return;
+  }
+  if (currentIdleExpr != ovExpr) { ovEraseAll(); ovExpr = currentIdleExpr; ovSig = 0xFFFFFFFF; }
+
+  switch (currentIdleExpr) {
+    case IDLE_CURIOUS: {                    // 一跳一跳的问号
+      const bool show = (now % 2600) < 1500;
+      const uint32_t sig = show ? (uint32_t)(100 + (now / 60) % 90) : 0;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      if (show) {
+        const int16_t yo = (int16_t)(sin((double)(now % 1500) / 1500.0 * PI) * 9);
+        ovText("?", DISP_W / 2, 30 - yo, 3, C_WHITE);
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_WINK: {                       // 上扬小嘴(静态)
+      const uint32_t sig = 1;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      drawHappyArc(DISP_W / 2, 150, 40, C_BLACK);
+      ovMark(DISP_W / 2 - 22, 138, 44, 22);
+      ovSig = sig; break;
+    }
+    case IDLE_SPARKLE: {                    // 上方闪光点
+      const bool on = ((now / 300) % 2) == 0;
+      const uint32_t sig = on ? 1 : 2;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      if (on) {
+        static const int16_t pts[3][2] = {{96, 34}, {144, 38}, {DISP_W / 2, 22}};
+        for (uint8_t i = 0; i < 3; i++) {
+          tft.fillRect(pts[i][0] - 4, pts[i][1], 8, 2, C_WHITE);
+          tft.fillRect(pts[i][0] - 1, pts[i][1] - 4, 2, 8, C_WHITE);
+          ovMark(pts[i][0] - 5, pts[i][1] - 5, 10, 10);
+        }
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_SURPRISED: {                  // 感叹号
+      const unsigned long c = now % 2600;
+      const bool show = c < 900;
+      const uint32_t sig = show ? (uint32_t)(50 + c / 120) : 0;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      if (show) ovText("!", DISP_W / 2, 24, 3, C_WHITE);
+      ovSig = sig; break;
+    }
+    case IDLE_SHY: {                        // 双颊腮红(缓慢脉动)
+      const uint8_t p = (now / 350) % 4;
+      const int16_t extra = (p < 2) ? p : (4 - p);   // 0,1,2,1
+      const uint32_t sig = 10 + extra;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      const int16_t bw = 26 + extra * 3, bh = 12, by = 116;
+      tft.fillRoundRect(45 - bw / 2,  by, bw, bh, 5, C_BLUSH); ovMark(45 - bw / 2 - 1,  by - 1, bw + 2, bh + 2);
+      tft.fillRoundRect(195 - bw / 2, by, bw, bh, 5, C_BLUSH); ovMark(195 - bw / 2 - 1, by - 1, bw + 2, bh + 2);
+      ovSig = sig; break;
+    }
+    case IDLE_DIZZY: {                      // 头顶绕圈小星
+      const uint32_t sig = now / 45;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      for (uint8_t i = 0; i < 3; i++) {
+        const double a = now / 420.0 + i * 2.094;
+        const int16_t x = DISP_W / 2 + (int16_t)(cos(a) * 22);
+        const int16_t y = 26 + (int16_t)(sin(a) * 12);
+        drawStarAt(x, y, 2, C_WHITE);
+        ovMark(x - 8, y - 8, 16, 16);
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_MUSIC: {                      // 两侧升起的音符
+      const uint32_t sig = now / 45;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      for (uint8_t i = 0; i < 2; i++) {
+        const unsigned long base = now + i * 900;
+        const double t = (double)(base % 1800) / 1800.0;
+        const int16_t x = (i ? 222 : 14) + (int16_t)(sin(t * 6) * 4);
+        const int16_t y = 150 - (int16_t)(t * 70);
+        ovNote(x, y, C_WHITE);
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_YAWN: {                       // O 形嘴(单次整块写入,避免脉动闪烁)
+      const unsigned long c = now % 3400;
+      const bool open = c < 1700;
+      const double m = open ? sin((double)c / 1700.0 * PI) : 0;
+      const uint32_t sig = open ? (uint32_t)(20 + (int)(m * 18)) : 0;
+      if (sig == ovSig && !rigZoneCleared) break;
+      if (!open) {                          // 合嘴:整块清掉上一帧的嘴(它本就要消失)
+        if (ovRn > 0) tft.fillRect(ovRx[0], ovRy[0], ovRw[0], ovRh[0], animBgColor);
+        ovRn = 0;
+      } else {
+        const int16_t mw = 10 + (int16_t)(30 * m), mh = 8 + (int16_t)(34 * m);
+        const int16_t mx = DISP_W / 2 - mw / 2, my = 150 - mh / 2;
+        if (ovRn > 0) {                     // 只擦旧嘴露出的部分(实心,不闪),不整块刷
+          EyeRect pm = {ovRx[0], ovRy[0], ovRw[0], ovRh[0], true};
+          eraseRectOutside(pm, mx, my, mw, mh);
+        }
+        ovRn = 0;
+        GFXcanvas16 cv(mw, mh);             // 内存拼好整块再一次性推屏(每像素只写一次)
+        cv.fillScreen(animBgColor);
+        cv.fillRoundRect(0, 0, mw, mh, (mw < mh ? mw : mh) / 2, C_BLACK);
+        tft.drawRGBBitmap(mx, my, cv.getBuffer(), mw, mh);
+        ovMark(mx, my, mw, mh);
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_LOVE: {                       // 升起的小爱心(白)
+      const uint32_t sig = now / 45;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      for (uint8_t i = 0; i < 3; i++) {
+        const unsigned long base = now + i * 700;
+        const double t = (double)(base % 2100) / 2100.0;
+        const int16_t x = DISP_W / 2 + (i - 1) * 36 + (int16_t)(sin(t * 5) * 5);
+        const int16_t y = 60 - (int16_t)(t * 48);
+        drawHeartAt(x, y, 3, C_WHITE);
+        ovMark(x - 10, y - 10, 20, 20);
+      }
+      ovSig = sig; break;
+    }
+    case IDLE_GIGGLE: {                     // 两侧笑纹(笑时显示)
+      const bool on = (now % 2200) < 1100;
+      const uint32_t sig = on ? 1 : 0;
+      if (sig == ovSig && !rigZoneCleared) break;
+      ovEraseAll();
+      if (on) {
+        for (uint8_t i = 0; i < 2; i++) {
+          const int16_t y = 62 + i * 7;
+          tft.drawLine(20,  y, 12,  y - 4, C_WHITE); ovMark(11,  y - 5, 11, 7);
+          tft.drawLine(220, y, 228, y - 4, C_WHITE); ovMark(219, y - 5, 11, 7);
+        }
+      }
+      ovSig = sig; break;
+    }
+  }
+}
+
+// ALERT 告急描边(仅第 3 档):四周白色边框随脉冲呼吸;on=false 时擦掉固定 10px 边框区。
+void alertBorder(bool on, unsigned long now) {
+  const int16_t MAX = 10;
+  tft.fillRect(0, 0, DISP_W, MAX, animBgColor);              // 先擦固定边框区(上/下/左/右)
+  tft.fillRect(0, DISP_H - MAX, DISP_W, MAX, animBgColor);
+  tft.fillRect(0, 0, MAX, DISP_H, animBgColor);
+  tft.fillRect(DISP_W - MAX, 0, MAX, DISP_H, animBgColor);
+  if (!on) return;
+  const double p = (sin((double)now / 300.0) + 1.0) / 2.0;   // 0..1,~2s 呼吸
+  const int16_t th = (int16_t)(p * MAX);
+  if (th <= 0) return;
+  tft.fillRect(0, 0, DISP_W, th, C_WHITE);
+  tft.fillRect(0, DISP_H - th, DISP_W, th, C_WHITE);
+  tft.fillRect(0, 0, th, DISP_H, C_WHITE);
+  tft.fillRect(DISP_W - th, 0, th, DISP_H, C_WHITE);
+}
+
+// ALERT 角标:眼睛上方一个上下跳的 "!",取代旧的整屏 logo。
+// 紧急度按"无人处理时长"(now-lastStatusMs)分三档:温和(0-8s)→催促(8-20s)→告急(20s+,加描边)。
+// 固定区域整块擦+重绘,仅 sig 变化或刚清过表情区时才重画,避免闪烁。
+void alertBadgeOverlay(unsigned long now) {
+  static uint32_t lastSig = 0xFFFFFFFF;
+  static bool     shown   = false;
+  const int16_t BX = DISP_W / 2 - 22, BY = 12, BW = 44, BH = 60;   // 角标包围盒(EYE 区之上,容纳放大的 "!")
+  const bool active = (currentView == VIEW_MONITOR && monitorState == MON_ALERT && rig.trans == 0);
+  if (!active) {
+    if (shown) { tft.fillRect(BX, BY, BW, BH, animBgColor); alertBorder(false, now); shown = false; lastSig = 0xFFFFFFFF; }
+    return;
+  }
+  const unsigned long el = now - lastStatusMs;                     // 距本次 alert 推送的时长
+  const uint8_t  stage  = (el >= 20000) ? 2 : (el >= 8000 ? 1 : 0);
+  const uint16_t period = (stage == 2) ? 420 : (stage == 1) ? 650 : 1400;   // 跳动周期:越急越快
+  const int16_t  amp    = (stage == 2) ? 5   : (stage == 1) ? 4   : 3;      // 跳幅
+  const int16_t  bw     = (stage == 2) ? 9   : (stage == 1) ? 8   : 6;      // "!" 笔宽(越急越大)
+  const int16_t  bh     = (stage == 2) ? 30  : (stage == 1) ? 27  : 22;
+  const int16_t  dh     = (stage == 2) ? 9   : (stage == 1) ? 8   : 6;
+  const int16_t  yo     = (int16_t)(sin((double)(now % period) / period * 2 * PI) * amp);
+
+  uint32_t sig = (uint32_t)stage * 100000 + (uint32_t)(yo + 20) * 1000;
+  if (stage == 2) sig += (now / 70) % 1000;                       // 告急档边框持续脉冲:~14fps 刷新
+  if (sig == lastSig && shown && !rigZoneCleared) return;
+  lastSig = sig;
+
+  alertBorder(stage == 2, now);                                   // 仅告急档描边,其余档确保擦掉
+  tft.fillRect(BX, BY, BW, BH, animBgColor);                      // 擦角标区
+  const int16_t topY = 18 + yo;
+  tft.fillRect(DISP_W / 2 - bw / 2, topY,            bw, bh, C_WHITE);   // "!" 竖条
+  tft.fillRect(DISP_W / 2 - bw / 2, topY + bh + 5,   bw, dh, C_WHITE);   // "!" 点
+  shown = true;
+}
+
+// 思考省略号:眼睛上方三个黑点依次起跳 "···",取代旧的 chevron 开合。
+void thinkingDotsOverlay(unsigned long now) {
+  static bool shown = false;
+  const int16_t BX = DISP_W / 2 - 38, BY = 48, BW = 76, BH = 26;   // 三点活动带(在 EYE 区之上)
+  const bool active = (currentView == VIEW_MONITOR && monitorState == MON_THINKING && rig.trans == 0);
+  if (!active) {
+    if (shown) { tft.fillRect(BX, BY, BW, BH, animBgColor); shown = false; }
+    return;
+  }
+  static uint32_t lastSig = 0xFFFFFFFF;
+  const uint32_t sig = (uint32_t)(now / 50);            // ~20fps 刷新足够顺滑
+  if (sig == lastSig && shown && !rigZoneCleared) return;
+  lastSig = sig;
+  tft.fillRect(BX, BY, BW, BH, animBgColor);            // 擦整条活动带
+  const int16_t cx = DISP_W / 2, baseY = 64;
+  for (uint8_t i = 0; i < 3; i++) {
+    const double ph = fmod((double)now / 260.0 - i + 30.0, 3.0);   // 三点依次领先一步
+    const int16_t yo = (ph < 1.0) ? (int16_t)(sin(ph * PI) * 7) : 0;
+    tft.fillCircle(cx - 26 + i * 26, baseY - yo, 5, C_BLACK);
+  }
+  shown = true;
+}
+
 // ── 覆盖层:困倦 Z 字、edit 光标、开心眼星星 ─────────────────
 void rigOverlayTick() {
   static uint8_t lastZ = 255;
@@ -1071,19 +1494,21 @@ void rigOverlayTick() {
   if (monitorState == MON_IDLE && currentIdleExpr == IDLE_SLEEPY && rig.trans == 0) {
     const uint8_t z = 1 + (uint8_t)((millis() / 1400) % 3);
     if (z != lastZ || rigZoneCleared) {
-      const int16_t zy = eyeY() + EYE_H + 14;
-      tft.fillRect(DISP_W / 2 - 36, zy - 2, 72, 20, animBgColor);
+      // zzz 在眼睛上方,从左下向右上、逐个变大依次出现
+      tft.fillRect(DISP_W / 2 - 38, 2, 92, 42, animBgColor);
       tft.setTextColor(C_WHITE);
-      tft.setTextSize(2);
-      tft.setCursor(DISP_W / 2 - 24, zy);
-      tft.print("Z");
-      if (z > 1) tft.print(" z");
-      if (z > 2) tft.print(" z");
+      const int16_t bx = DISP_W / 2 - 30;
+      const int16_t by = 34;
+      for (uint8_t i = 0; i < z; i++) {
+        tft.setTextSize(i + 1);
+        tft.setCursor(bx + i * 18, by - i * 12);
+        tft.print("z");
+      }
+      tft.setTextSize(1);
       lastZ = z;
     }
   } else if (lastZ != 255) {
-    const int16_t zy = eyeY() + EYE_H + 14;
-    tft.fillRect(DISP_W / 2 - 36, zy - 2, 72, 20, animBgColor);
+    tft.fillRect(DISP_W / 2 - 38, 2, 92, 42, animBgColor);
     lastZ = 255;
   }
 
@@ -1158,6 +1583,10 @@ void rigOverlayTick() {
   } else {
     starsOn = false;   // 离开 happy 后区域由 zone 清理负责
   }
+
+  idleNewOverlay(millis());     // 新 idle 表情(>=IDLE_CURIOUS)的飘字/精灵层
+  alertBadgeOverlay(millis());  // ALERT 的 "!" 角标(取代旧整屏 logo)
+  thinkingDotsOverlay(millis()); // thinking 的省略号 "···"(取代旧 chevron 开合)
 }
 
 // ── Activity ticker(仅 MON_WORKING) ─────────────────────────
@@ -1361,16 +1790,84 @@ void animLogoReveal() {
   busy = false;
 }
 
+// ── 情绪引擎 ──────────────────────────────────────────────────
+// 当前心情对应的 idle 表情子集
+const uint8_t* moodPool(uint8_t mood, uint8_t* sizeOut) {
+  switch (mood) {
+    case MOOD_FOCUSED:  *sizeOut = sizeof(MOOD_FOCUSED_POOL);  return MOOD_FOCUSED_POOL;
+    case MOOD_TIRED:    *sizeOut = sizeof(MOOD_TIRED_POOL);    return MOOD_TIRED_POOL;
+    case MOOD_CHEERFUL: *sizeOut = sizeof(MOOD_CHEERFUL_POOL); return MOOD_CHEERFUL_POOL;
+    default:            *sizeOut = sizeof(MOOD_COZY_POOL);     return MOOD_COZY_POOL;
+  }
+}
+
+// 轮播间隔随心情:雀跃快、疲惫慢,带轻微抖动更自然
+uint32_t moodSwitchMs(uint8_t mood) {
+  switch (mood) {
+    case MOOD_CHEERFUL: return 10000 + (uint32_t)random(5000);
+    case MOOD_TIRED:    return 40000 + (uint32_t)random(10000);
+    case MOOD_FOCUSED:  return 25000 + (uint32_t)random(10000);
+    default:            return 28000 + (uint32_t)random(10000);   // 惬意
+  }
+}
+
+void saveMoodNow() {
+  prefs.putUChar("mEnergy", (uint8_t)moodEnergy);
+  prefs.putUChar("mJoy",    (uint8_t)moodJoy);
+}
+void loadMood() {
+  moodEnergy = (float)prefs.getUChar("mEnergy", 80);
+  moodJoy    = (float)prefs.getUChar("mJoy", 0);
+}
+// 轻量持久化:最多每 5 分钟、且值有变化才写 Flash
+void maybePersistMood(unsigned long now) {
+  static unsigned long lastSave = 0;
+  static uint8_t savedE = 255, savedJ = 255;
+  if (now - lastSave < 300000UL) return;
+  const uint8_t e = (uint8_t)moodEnergy, j = (uint8_t)moodJoy;
+  if (e == savedE && j == savedJ) return;
+  saveMoodNow();
+  savedE = e; savedJ = j; lastSave = now;
+}
+
+// 每 ~2s 推进一次情绪并判定心情;心情变化且正空闲时让 idle 立刻换到新心情的表情
+void updateMood(unsigned long now) {
+  if (lastMoodTick == 0) { lastMoodTick = now; return; }
+  if (now - lastMoodTick < 2000) return;
+  const float dtMin = (now - lastMoodTick) / 60000.0f;
+  lastMoodTick = now;
+
+  const bool active = (monitorState == MON_THINKING || monitorState == MON_WORKING);
+  if (active) { moodEnergy -= ENERGY_DRAIN_PER_MIN * dtMin; lastActiveMs = now; }
+  else        { moodEnergy += ENERGY_RECOVER_PER_MIN * dtMin; }
+  moodEnergy = constrain(moodEnergy, 0.0f, 100.0f);
+  moodJoy = constrain(moodJoy - JOY_DECAY_PER_MIN * dtMin, 0.0f, 100.0f);
+
+  uint8_t m;
+  if (moodJoy >= MOOD_CHEERFUL_JOY)               m = MOOD_CHEERFUL;
+  else if (moodEnergy <= MOOD_TIRED_ENERGY)       m = MOOD_TIRED;
+  else if (now - lastActiveMs < MOOD_FOCUSED_WINDOW_MS) m = MOOD_FOCUSED;
+  else                                            m = MOOD_COZY;
+
+  if (m != currentMood) {
+    currentMood = m;
+    // 正在 idle 显示:触发下一帧立刻换到新心情的表情子集
+    if (currentView == VIEW_MONITOR && monitorState == MON_IDLE && !busy && now >= nextIdleSwitchMs) {
+      lastIdleSwitch = now - nextIdleSwitchMs;
+    }
+  }
+  maybePersistMood(now);
+}
+
 void resetIdleRotation() {
   lastIdleSwitch = millis();
-  nextIdleSwitchMs = IDLE_SWITCH_MIN_MS +
-    random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
+  nextIdleSwitchMs = moodSwitchMs(currentMood);
 }
 
 void tickMonitorAnimation() {
   if (currentView != VIEW_MONITOR) return;
   if (busy) return;
-  if (monitorState == MON_OFFLINE || monitorState == MON_ALERT) return;
+  if (monitorState == MON_OFFLINE) return;
 
   const unsigned long now = millis();
   if (lastAnimTick != 0 && now - lastAnimTick < RIG_TICK_MS) return;
@@ -1492,12 +1989,15 @@ void checkIdleRotation() {
   }
   if (millis() - lastIdleSwitch < nextIdleSwitchMs) return;
 
-  currentIdleIndex = (currentIdleIndex + 1) % IDLE_POOL_SIZE;
-  currentIdleExpr = IDLE_POOL[currentIdleIndex];
+  uint8_t poolSize;                          // 在当前心情的表情子集里随机挑,不与当前重复
+  const uint8_t* pool = moodPool(currentMood, &poolSize);
+  uint8_t ni;
+  do { ni = (uint8_t)random(poolSize); } while (poolSize > 1 && pool[ni] == currentIdleExpr);
+  currentIdleIndex = ni;
+  currentIdleExpr = pool[ni];
   rigApplyExpression(false);   // 眼睑过渡切表情
   lastIdleSwitch = millis();
-  nextIdleSwitchMs = IDLE_SWITCH_MIN_MS +
-    random(IDLE_SWITCH_MAX_MS - IDLE_SWITCH_MIN_MS + 1);
+  nextIdleSwitchMs = moodSwitchMs(currentMood);
 }
 
 uint8_t parseAct(const String& a) {
@@ -1540,6 +2040,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   if (s == "done") {
     lastStatusMs = millis();
     statusTimedOut = false;
+    moodJoy = constrain(moodJoy + JOY_PER_DONE, 0.0f, 100.0f);   // 完成→喜悦累积(攒够→雀跃)
     if (currentView == VIEW_DRAW) return;
     if (currentView == VIEW_CODE && termMode) return;
     currentView = VIEW_MONITOR;
@@ -1595,8 +2096,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
       break;
     case MON_ALERT:
       if (!backlightOn) setBacklight(true);
-      animLogoReveal();
-      rigInvalidate();
+      rigApplyExpression(entering);   // 警觉眼 + 上方 "!" 角标,不再整屏 logo
       tickerVisible = false;
       tickerDrawn[0] = 0;
       break;
@@ -1606,6 +2106,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
       rigInvalidate();
       tickerVisible = false;
       tickerDrawn[0] = 0;
+      saveMoodNow();   // 会话结束:持久化当前情绪(重启可恢复)
       break;
   }
 }
@@ -1635,6 +2136,7 @@ void checkStatusTimeout() {
   if (currentView != VIEW_MONITOR) return;
   if (lastStatusMs == 0) return;
   if (monitorState == MON_IDLE || monitorState == MON_OFFLINE) return;
+  if (monitorState == MON_ALERT) return;   // alert 不自动超时:由紧急度逐级升级,直到新事件清除
   if (millis() - lastStatusMs < STATUS_TIMEOUT_MS) return;
   if (statusTimedOut) return;
 
@@ -2308,14 +2810,11 @@ void routeRedraw() {
       break;
     case VIEW_MONITOR:
       switch (monitorState) {
-        case MON_ALERT:
-          drawLogoFilled(animBgColor, C_WHITE);   // 重绘 ALERT 定格画面(animLogoReveal 末行)
-          break;
         case MON_OFFLINE:
           drawNormalEyes();
           break;
         default:
-          rigApplyExpression(true);   // 换背景色后整区重绘
+          rigApplyExpression(true);   // 含 ALERT:换背景色后整区重绘眼睛(角标由 tick 补画)
           break;
       }
       break;
@@ -2473,6 +2972,7 @@ void setup() {
   // ── Start WiFi (AP + optional STA) ─────────────────────────
   prefs.begin("clawd", false);
   loadWifiCredentials();
+  loadMood();   // 恢复上次的情绪(energy/joy)
 
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(AP_SSID, AP_PASS);
@@ -2515,6 +3015,7 @@ void loop() {
     enterMonitorView();   // enterMonitorView 内部已置 bootScreenDeadline = 0
   }
   checkStatusTimeout();
+  updateMood(millis());
   checkIdleRotation();
   tickMonitorAnimation();
 
