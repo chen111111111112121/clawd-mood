@@ -1354,6 +1354,10 @@ void animLogoReveal() {
   }
   drawLogoFilled(animBgColor, C_WHITE);
   delay(1500);
+  // logo 整屏覆盖了表情渲染记账(lastRenderKey)之外的区域(尤其顶部 y<28)。
+  // 作废 key,确保离开 ALERT 后下一帧表情强制整屏清,否则前后同状态(如 working→alert→working)
+  // 会因 key 未变跳过整屏清,只清表情区而残留 logo 顶部。
+  lastRenderKey = 255;
   busy = false;
 }
 
