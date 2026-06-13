@@ -2,8 +2,21 @@ const test = require('node:test');
 const assert = require('node:assert');
 const {
   classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics,
-  buildMdnsQuery, parseMdnsAnswer, isIPv4,
+  buildMdnsQuery, parseMdnsAnswer, isIPv4, notificationIsAlert,
 } = require('../clawd-hook.js');
+
+// ── notificationIsAlert(Notification 误报过滤) ────────────────
+test('等待输入的待命通知 -> 不弹 alert', () => {
+  assert.strictEqual(notificationIsAlert({ message: 'Claude is waiting for your input' }), false);
+});
+test('空消息通知 -> 不弹 alert', () => {
+  assert.strictEqual(notificationIsAlert({}), false);
+  assert.strictEqual(notificationIsAlert(null), false);
+});
+test('权限确认类通知 -> 保留 alert', () => {
+  assert.strictEqual(notificationIsAlert({ message: 'Claude needs your permission to use Bash' }), true);
+  assert.strictEqual(notificationIsAlert({ message: 'Permission required to run command' }), true);
+});
 
 // ── classifyTool ──────────────────────────────────────────────
 test('Edit -> act=edit, info=basename (Windows path)', () => {
