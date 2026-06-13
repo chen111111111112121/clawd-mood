@@ -34,7 +34,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir      = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SourceHook     = Join-Path $ScriptDir "clawd-hook.js"
-$GlobalDir      = Join-Path $env:USERPROFILE ".clawd-mochi\hook"
+$GlobalDir      = Join-Path $env:USERPROFILE ".clawd-mood\hook"
 $GlobalHook     = Join-Path $GlobalDir "clawd-hook.js"
 $GlobalDev      = Join-Path $GlobalDir "device.json"
 $CursorDir      = Join-Path $env:USERPROFILE ".cursor"

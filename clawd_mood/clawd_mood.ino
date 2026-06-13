@@ -12,7 +12,7 @@
  *     VCC → 3V3
  *     GND → GND
  *
- *   AP:  "ClaWD-Mochi"  pw: clawd1234  → http://192.168.4.1
+ *   AP:  "ClaWD-Mood"  pw: clawd1234  → http://192.168.4.1
  *   STA: configure via web portal (saved to flash)
  *   Monitor: GET http://<sta-ip>/status?s=idle|thinking|working|done|alert|offline
  * ╚══════════════════════════════════════════════════════════════╝
@@ -36,7 +36,7 @@
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
 // ── WiFi ──────────────────────────────────────────────────────
-const char* AP_SSID = "ClaWD-Mochi";
+const char* AP_SSID = "ClaWD-Mood";
 const char* AP_PASS = "clawd1234";
 WebServer server(80);
 Preferences prefs;
@@ -480,7 +480,7 @@ void drawWifiScreen(uint32_t autoLeaveMs) {
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
   tft.setTextColor(C_WHITE); tft.setTextSize(2);
-  tft.setCursor(12, 16);  tft.print("WiFi: ClaWD-Mochi");
+  tft.setCursor(12, 16);  tft.print("WiFi: ClaWD-Mood");
   tft.setTextColor(C_MUTED); tft.setTextSize(1);
   tft.setCursor(12, 44);  tft.print("password: clawd1234");
   tft.setTextColor(C_WHITE); tft.setTextSize(1);
@@ -2340,7 +2340,7 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
   <span class="wlbl">PASSWORD</span>
   <input class="wfld" id="wifiPass" type="password" placeholder="WiFi password">
   <button class="wgo" onclick="saveWifi()">Save &amp; Connect</button>
-  <div class="wstat" id="wifiStat">AP always on: ClaWD-Mochi / clawd1234</div>
+  <div class="wstat" id="wifiStat">AP always on: ClaWD-Mood / clawd1234</div>
   <div class="winstall" id="winstall" style="display:none;flex-direction:column;gap:6px;margin-top:8px">
     <span class="wlbl">ON YOUR PC — run in the repo's hook/ folder</span>
     <code id="wcmd" style="display:block;background:#1c1b1f;border:1px solid #38343a;border-radius:6px;padding:8px;font-size:11px;color:#d8d4cc;word-break:break-all"></code>
@@ -2728,7 +2728,7 @@ async function clearAll() {
     }
     if (j.sta_ip) {
       document.getElementById('wifiStat').textContent =
-        'Home WiFi: ' + j.sta_ip + ' · AP: ClaWD-Mochi';
+        'Home WiFi: ' + j.sta_ip + ' · AP: ClaWD-Mood';
     }
     updateMonitorUI(j);
   } catch(e) {}
