@@ -117,9 +117,8 @@ uint8_t  currentIdleExpr  = IDLE_NORMAL;
 unsigned long lastStatusMs = 0;
 unsigned long lastIdleSwitch = 0;
 
-#define BOOT_INFO_MS 10000
 #define BOOT_CONFIRM_MS 3000   // 已连上家庭 WiFi:显示 IP 确认 3s 后进表情
-unsigned long bootScreenDeadline = 0;   // >0 = 开机信息屏倒计时中
+unsigned long bootScreenDeadline = 0;   // >0 = 信息屏确认倒计时中(仅"已连上"用);0 = 常驻
 unsigned long lastAnimTick   = 0;
 uint32_t nextIdleSwitchMs = 30000;
 
@@ -399,6 +398,7 @@ bool connectSTA() {
     staIP = "";
     return false;
   }
+  WiFi.setAutoReconnect(true);    // 本次主动连接,允许连上后自动恢复
   WiFi.begin(savedSSID.c_str(), savedPASS.c_str());
   const unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < STA_CONNECT_TIMEOUT_MS) {
@@ -406,6 +406,12 @@ bool connectSTA() {
   }
   staConnected = (WiFi.status() == WL_CONNECTED);
   staIP = staConnected ? WiFi.localIP().toString() : "";
+  if (!staConnected) {
+    // 连不上:关掉 STA 后台自动重连并断开。单射频下 AP+STA 必须同信道,
+    // 若 STA 持续重试一个够不到的网络,会不断搅乱 softAP,导致手机扫不到配网热点。
+    WiFi.setAutoReconnect(false);
+    WiFi.disconnect(false, false);  // 仅停 STA,保留射频给 AP
+  }
   return staConnected;
 }
 
@@ -2472,12 +2478,10 @@ void setup() {
     startMDNS();
   }
 
-  if (savedSSID.length() == 0) {
-    enterBootInfoView(0);                  // 未配置:常驻直到配置完成
-  } else if (staConnected) {
+  if (staConnected) {
     enterBootInfoView(BOOT_CONFIRM_MS);    // 已连上:3s 确认 IP 后进表情
   } else {
-    enterBootInfoView(BOOT_INFO_MS);       // 配了但还没连上:10s 兜底
+    enterBootInfoView(0);                  // 未连上(无凭据 / 旧凭据连不上):常驻,等配网
   }
 
   // ── Register routes ────────────────────────────────────────
@@ -2524,9 +2528,14 @@ void loop() {
         }
       } else {
         staIP = "";
-        if (wasConnected) {
+        if (wasConnected) {                 // 在线掉线:尝试恢复一次
           connectSTA();
-          startMDNS();
+          if (staConnected) {
+            staIP = WiFi.localIP().toString();
+            startMDNS();
+          } else if (currentView != VIEW_BOOTINFO) {
+            enterBootInfoView(0);           // 恢复失败 → 回信息屏,稳定 AP 等重配网
+          }
         }
       }
     }
