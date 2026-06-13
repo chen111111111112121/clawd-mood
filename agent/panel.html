@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clawd · 控制台</title>
+<style>
+  body { margin:0; font:15px/1.6 system-ui,sans-serif; background:#161616; color:#eee; }
+  .wrap { max-width:480px; margin:0 auto; padding:22px 16px; }
+  h2 { margin:0 0 4px; }
+  .sub { opacity:.55; font-size:13px; margin-bottom:18px; }
+  .dev { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; margin-bottom:16px;
+         border:1px solid #2c2c2c; border-radius:12px; background:#1d1d1d; }
+  .dev .ok { color:#4ade80; } .dev .bad { color:#f87171; }
+  button { font:inherit; color:inherit; background:#262626; border:1px solid #3a3a3a; border-radius:8px; padding:5px 12px; cursor:pointer; }
+  .h { opacity:.5; font-size:12px; margin:0 0 8px 2px; }
+  .tool { display:flex; align-items:center; gap:12px; padding:13px 14px; margin-bottom:9px; cursor:pointer;
+          border:1px solid #2c2c2c; border-radius:12px; background:#1d1d1d; }
+  .tool.on { border-color:#4ade80; background:#162a1c; }
+  .radio { width:18px; height:18px; border-radius:50%; border:2px solid #555; flex:0 0 auto; position:relative; }
+  .tool.on .radio { border-color:#4ade80; }
+  .tool.on .radio::after { content:''; position:absolute; inset:3px; border-radius:50%; background:#4ade80; }
+  .name { font-weight:600; } .meta { font-size:12px; opacity:.5; }
+  .live { margin-left:auto; font-size:11px; padding:2px 9px; border-radius:20px; background:#243; color:#bbf7d0; }
+  .live.off { background:#222; color:#777; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h2>Clawd · 控制台</h2>
+  <div class="sub">绑定 Mochi 当前响应哪一款 AI 工具</div>
+  <div class="dev">
+    <div id="dev">设备：<b id="devt">…</b> <span id="devs"></span></div>
+    <button onclick="testDev()">测试 / 重连</button>
+  </div>
+  <p class="h">MOCHI 当前响应（单选）</p>
+  <div id="tools"></div>
+</div>
+<script>
+  const ACTIVE_FRESH_MS = 60000;
+  async function load() {
+    const s = await (await fetch('/state')).json();
+    const box = document.getElementById('tools'); box.innerHTML = '';
+    s.tools.forEach((t) => {
+      const on = s.activeTool === t.id;
+      const seen = s.lastSeen && s.lastSeen[t.id];
+      const fresh = seen && (Date.now() - seen < ACTIVE_FRESH_MS);
+      const el = document.createElement('div');
+      el.className = 'tool' + (on ? ' on' : '');
+      el.innerHTML = `<span class="radio"></span>
+        <span><div class="name">${t.name}</div><div class="meta">${t.installed ? '已安装 hook' : '未安装 hook'} · ${t.id}</div></span>
+        <span class="live ${fresh ? '' : 'off'}">${fresh ? '最近有事件' : '空闲'}</span>`;
+      el.onclick = () => setActive(t.id);
+      box.appendChild(el);
+    });
+  }
+  async function setActive(tool) {
+    await fetch('/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool }) });
+    load();
+  }
+  async function testDev() {
+    document.getElementById('devs').textContent = '测试中…';
+    const r = await (await fetch('/device/test')).json();
+    document.getElementById('devt').textContent = r.target;
+    document.getElementById('devs').className = r.ok ? 'ok' : 'bad';
+    document.getElementById('devs').textContent = r.ok ? '● 已连接' : '● 不可达';
+  }
+  load(); testDev(); setInterval(load, 5000);
+</script>
+</body>
+</html>

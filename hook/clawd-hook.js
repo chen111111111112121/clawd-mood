@@ -13,6 +13,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const dgram = require('dgram');
 
 const CONFIG_PATH = path.join(__dirname, 'device.json');
@@ -32,8 +33,8 @@ const STATE_MAP = {
   Stop: 'done',
   Notification: 'alert',
   Elicitation: 'alert',
-  PostToolUseFailure: 'alert',
-  StopFailure: 'alert',
+  PostToolUseFailure: 'working',   // 普通工具失败不再弹 alert,保持工作态(只有真需确认才 alert)
+  StopFailure: 'idle',             // 失败收尾回 idle,不庆祝也不弹 alert
   SubagentStart: 'working',
   SubagentStop: 'working',
   PreCompact: 'thinking',
@@ -45,11 +46,22 @@ const STATE_MAP = {
   preToolUse: 'working',
   postToolUse: 'working',
   stop: 'done',
-  postToolUseFailure: 'alert',
+  postToolUseFailure: 'working',   // 同上:工具失败保持工作态
   subagentStart: 'working',
   subagentStop: 'working',
   preCompact: 'thinking',
 };
+
+// Notification 误报过滤:Claude Code 的 Notification 不只在报错时触发,
+// "Claude is waiting for your input"(空闲待命)、收尾提醒等日常通知也会发,
+// 这些不该弹出 ALERT 的 logo。仅"权限/确认"类(消息明确需要你操作)才保留 alert。
+const NOTIF_QUIET_RE = /waiting|idle|elapsed|still\s|finish|complete|\bdone\b/i;
+function notificationIsAlert(payload) {
+  const msg = (payload && typeof payload.message === 'string') ? payload.message : '';
+  if (!msg) return false;                 // 无消息:多为待命提醒,忽略
+  if (NOTIF_QUIET_RE.test(msg)) return false;  // 等待输入/收尾等日常通知,忽略
+  return true;                            // 权限确认等真正需要注意的 → 保留 alert
+}
 
 // ── Tool semantics (state=working 時随 /status 附带) ─────────
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep', 'NotebookRead']);
@@ -113,6 +125,49 @@ function buildStatusUrl(ip, state, semantics) {
     if (semantics.info) url += `&info=${encodeURIComponent(semantics.info)}`;
   }
   return url;
+}
+
+// ── 多 AI 工具绑定:门控 ───────────────────────────────────────
+function configDir() {
+  return process.env.CLAWD_CONFIG_DIR || path.join(os.homedir(), '.clawd-mood');
+}
+
+// 确定本次 hook 来自哪款 AI 工具:CLAWD_SOURCE 环境变量 > --source= argv > 按事件名大小写推断
+function resolveSource(event, env = process.env, argv = process.argv) {
+  if (env.CLAWD_SOURCE) return String(env.CLAWD_SOURCE).trim();
+  const a = (argv || []).find((x) => typeof x === 'string' && x.startsWith('--source='));
+  if (a) return a.slice('--source='.length);
+  if (typeof event === 'string' && /^[A-Z]/.test(event)) return 'cc';   // Claude Code: PascalCase
+  return 'cursor';                                                       // Cursor: camelCase
+}
+
+// 读绑定配置;缺文件/坏 JSON/未设 -> null(=不门控,向后兼容)
+function readActiveTool(dir = configDir()) {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'agent.json'), 'utf8'));
+    const t = cfg && cfg.activeTool;
+    return (typeof t === 'string' && t.length) ? t : null;
+  } catch (_) { return null; }
+}
+
+// 设了 activeTool 且不等于本次来源 -> 门控
+function isGated(activeTool, source) {
+  return !!activeTool && activeTool !== source;
+}
+
+// hook 独占写 agent-state.json 的 lastSeen(给面板做活动指示);失败静默
+function touchLastSeen(source, now, dir = configDir()) {
+  try {
+    const p = path.join(dir, 'agent-state.json');
+    let st = {};
+    try { st = JSON.parse(fs.readFileSync(p, 'utf8')) || {}; } catch (_) {}
+    if (!st.lastSeen) st.lastSeen = {};
+    st.lastSeen[source] = now;
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${p}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(st));
+    fs.renameSync(tmp, p);
+  } catch (_) {}
 }
 
 function getConfiguredTarget() {
@@ -295,16 +350,24 @@ async function main() {
   if (text) {
     try { payload = JSON.parse(text); } catch (_) {}
   }
-  const event = (payload && payload.hook_event_name) || process.argv[2];
-  writeCursorStdout(event);
+  const argEvent = process.argv.slice(2).find((a) => a && !a.startsWith('--'));
+  const event = (payload && payload.hook_event_name) || argEvent;
+  writeCursorStdout(event);                       // 必须在门控前:Cursor 门控钩子要求始终输出 {"continue":true}
+  const source = resolveSource(event);
+  if (isGated(readActiveTool(), source)) process.exit(0);   // 非当前绑定工具:静默退出
   const state = STATE_MAP[event];
   if (!state) process.exit(0);
+  // Notification 误报过滤:日常待命/收尾通知不推 alert,设备保持当前状态
+  if (state === 'alert' && event === 'Notification' && !notificationIsAlert(payload)) {
+    process.exit(0);
+  }
   const semantics = state === 'working' ? resolveSemantics(payload) : null;
   await pushState(state, semantics);
+  touchLastSeen(source, Date.now());
   process.exit(0);
 }
 
-module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP, buildMdnsQuery, parseMdnsAnswer, readDnsName, isIPv4 };
+module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP, buildMdnsQuery, parseMdnsAnswer, readDnsName, isIPv4, notificationIsAlert, resolveSource, readActiveTool, isGated, configDir, touchLastSeen };
 
 if (require.main === module) {
   main().catch(() => process.exit(0));
