@@ -4,7 +4,8 @@
   One-click install Clawd Mochi hooks for Cursor + Claude Code.
 
 .PARAMETER DeviceIP
-  Mochi device LAN IP, e.g. 192.168.150.21
+  Mochi device LAN IP or hostname, e.g. 192.168.150.21 or clawd.local.
+  Omit to auto-discover clawd.local on the LAN.
 
 .PARAMETER NodePath
   Optional path to node.exe

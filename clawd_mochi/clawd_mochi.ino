@@ -2293,6 +2293,9 @@ void routeRedraw() {
     case VIEW_EYES_SQUISH: drawSquishEyes(); break;
     case VIEW_CODE:        drawCodeView();   break;
     case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
+    case VIEW_BOOTINFO:
+      // 信息屏用固定深色背景(C_DARKBG),不随 /redraw 的 bg 改变;刻意不重绘以免刷错倒计时文案
+      break;
     case VIEW_MONITOR:
       switch (monitorState) {
         case MON_ALERT:
