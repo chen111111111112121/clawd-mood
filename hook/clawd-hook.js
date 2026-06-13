@@ -121,7 +121,7 @@ function getConfiguredTarget() {
     const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
     if (cfg.device_ip) return String(cfg.device_ip).trim();
   } catch (_) {}
-  return '192.168.150.21';
+  return 'clawd.local';
 }
 
 function isIPv4(s) {

@@ -166,3 +166,9 @@ test('isIPv4: 判定', () => {
   assert.strictEqual(isIPv4('clawd.local'), false);
   assert.strictEqual(isIPv4(''), false);
 });
+
+// ── 默认主机名走 mDNS 路径 ─────────────────────────────────────
+test('clawd.local 不是 IPv4,会进入 mDNS 解析分支', () => {
+  assert.strictEqual(isIPv4('clawd.local'), false);
+  assert.strictEqual(isIPv4('192.168.1.5'), true);
+});
