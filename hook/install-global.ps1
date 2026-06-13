@@ -150,18 +150,29 @@ if (-not (Test-Path $SourceHook)) {
 if (-not $DeviceIP) {
     $existing = Read-ExistingDeviceIP
     if ($existing) {
-        $prompt = "Mochi device IP [detected: $existing]"
+        $prompt = "Mochi device IP/host [detected: $existing]"
         $DeviceIP = Read-Host $prompt
         if (-not $DeviceIP) { $DeviceIP = $existing }
     } else {
-        $DeviceIP = Read-Host "Mochi device IP (e.g. 192.168.150.21)"
+        # 自动发现:试 clawd.local /state
+        try {
+            $probe = Invoke-WebRequest -Uri "http://clawd.local/state" -UseBasicParsing -TimeoutSec 3
+            if ($probe.StatusCode -eq 200) {
+                Write-Host "Auto-discovered device at clawd.local" -ForegroundColor Green
+                $DeviceIP = "clawd.local"
+            }
+        } catch { }
+        if (-not $DeviceIP) {
+            $DeviceIP = Read-Host "Mochi device IP/host (e.g. 192.168.150.21 or clawd.local; see device screen)"
+        }
     }
 }
 
 $DeviceIP = $DeviceIP.Trim()
-$ipPattern = '^\d{1,3}(\.\d{1,3}){3}$'
-if ($DeviceIP -notmatch $ipPattern) {
-    throw "Invalid IP: $DeviceIP"
+$ipPattern   = '^\d{1,3}(\.\d{1,3}){3}$'
+$hostPattern = '^[A-Za-z0-9][A-Za-z0-9.\-]*$'
+if ($DeviceIP -notmatch $ipPattern -and $DeviceIP -notmatch $hostPattern) {
+    throw "Invalid IP/host: $DeviceIP"
 }
 
 $NodePath = Find-NodePath -Preferred $NodePath
