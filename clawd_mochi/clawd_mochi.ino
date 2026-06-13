@@ -71,6 +71,7 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN;
 #define VIEW_CODE        2
 #define VIEW_DRAW        3
 #define VIEW_MONITOR     4
+#define VIEW_BOOTINFO    5
 
 #define MON_IDLE     0
 #define MON_THINKING 1
@@ -117,6 +118,7 @@ unsigned long lastStatusMs = 0;
 unsigned long lastIdleSwitch = 0;
 
 #define BOOT_INFO_MS 10000
+#define BOOT_CONFIRM_MS 3000   // 已连上家庭 WiFi:显示 IP 确认 3s 后进表情
 unsigned long bootScreenDeadline = 0;   // >0 = 开机信息屏倒计时中
 unsigned long lastAnimTick   = 0;
 uint32_t nextIdleSwitchMs = 30000;
@@ -415,7 +417,7 @@ void startMDNS() {
   }
 }
 
-void drawWifiScreen() {
+void drawWifiScreen(uint32_t autoLeaveMs) {
   tft.fillScreen(C_DARKBG);
   tft.fillRect(0, 0, DISP_W, 4, C_ORANGE);
   tft.setTextColor(C_WHITE); tft.setTextSize(2);
@@ -441,7 +443,14 @@ void drawWifiScreen() {
     tft.setCursor(12, 140); tft.print("configure in web portal");
   }
   tft.setTextColor(C_MUTED); tft.setTextSize(1);
-  tft.setCursor(12, 210); tft.print("auto start in 10s ...");
+  tft.setCursor(12, 210);
+  if (autoLeaveMs) {
+    tft.print("auto start in "); tft.print(autoLeaveMs / 1000); tft.print("s ...");
+  } else if (!staConnected) {
+    tft.print("waiting for WiFi setup ...");
+  } else {
+    tft.print("press any view to start");
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -1591,6 +1600,14 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   }
 }
 
+// 信息屏作为正规视图;autoLeaveMs=0 表示常驻,直到状态推送/手动切视图
+void enterBootInfoView(uint32_t autoLeaveMs) {
+  currentView = VIEW_BOOTINFO;
+  termMode = false;
+  bootScreenDeadline = autoLeaveMs ? (millis() + autoLeaveMs) : 0;
+  drawWifiScreen(autoLeaveMs);
+}
+
 void enterMonitorView() {
   bootScreenDeadline = 0;        // 取消开机信息屏倒计时,防重复触发
   currentView = VIEW_MONITOR;
@@ -1765,6 +1782,7 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
 <div class="sec">// controls</div>
 <div class="ctrl">
   <button class="cbtn on" id="blBtn" onclick="toggleBL()">&#9728; display on</button>
+  <button class="cbtn" id="infoBtn" onclick="showInfo()">&#8505; device info</button>
 </div>
 
 <div class="sec">// views</div>
@@ -1811,6 +1829,12 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
   <input class="wfld" id="wifiPass" type="password" placeholder="WiFi password">
   <button class="wgo" onclick="saveWifi()">Save &amp; Connect</button>
   <div class="wstat" id="wifiStat">AP always on: ClaWD-Mochi / clawd1234</div>
+  <div class="winstall" id="winstall" style="display:none;flex-direction:column;gap:6px;margin-top:8px">
+    <span class="wlbl">ON YOUR PC — run in the repo's hook/ folder</span>
+    <code id="wcmd" style="display:block;background:#1c1b1f;border:1px solid #38343a;border-radius:6px;padding:8px;font-size:11px;color:#d8d4cc;word-break:break-all"></code>
+    <button class="wgo" onclick="copyCmd()">Copy command</button>
+    <span class="wstat">Tip: <code>.\\install-global.ps1</code> with no IP also auto-finds the device.</span>
+  </div>
 </div>
 
 <div class="sec">// speed</div>
@@ -1926,6 +1950,11 @@ async function setSpeed(v) {
   await req('/speed?v=' + v);
 }
 
+// ── Device info ─────────────────────────────────────────────────
+async function showInfo() {
+  if (await req('/cmd?k=i')) toast('device info on screen');
+}
+
 // ── Views ───────────────────────────────────────────────────────
 async function setView(v) {
   if (isBusy || termOpen || canvasOpen) return;
@@ -2007,6 +2036,21 @@ function stopMonitorPoll() {
 }
 
 // ── WiFi config ─────────────────────────────────────────────────
+function copyCmd() {
+  const txt = document.getElementById('wcmd').textContent;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(txt).then(() => toast('copied'), () => toast('copy failed', false));
+    return;
+  }
+  // http 局域网非安全上下文:execCommand 兜底
+  const ta = document.createElement('textarea');
+  ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand('copy'); toast('copied'); }
+  catch (e) { toast('long-press to copy', false); }
+  document.body.removeChild(ta);
+}
+
 async function saveWifi() {
   const ssid = document.getElementById('wifiSsid').value.trim();
   const pass = document.getElementById('wifiPass').value;
@@ -2018,6 +2062,9 @@ async function saveWifi() {
     const j = await r.json();
     if (j.ok && j.sta) {
       document.getElementById('wifiStat').textContent = 'Connected: ' + j.sta_ip;
+      document.getElementById('wcmd').textContent =
+        '.\\install-global.ps1 -DeviceIP ' + j.sta_ip;
+      document.getElementById('winstall').style.display = 'flex';
       toast('WiFi connected');
     } else {
       document.getElementById('wifiStat').textContent = 'Failed — check SSID/password';
@@ -2217,6 +2264,9 @@ void routeCmd() {
       currentView = VIEW_EYES_NORMAL;
       animLogoReveal();
       break;
+    case 'i':
+      enterBootInfoView(0);   // 召回信息屏,常驻直到下次切视图
+      break;
   }
 }
 
@@ -2333,7 +2383,11 @@ void routeWifiSave() {
   delay(100);
   connectSTA();
   startMDNS();
-  drawWifiScreen();
+  if (staConnected) {
+    enterBootInfoView(BOOT_CONFIRM_MS);   // 连上:显示 IP 3s 后自动进表情(修复永久卡死)
+  } else {
+    enterBootInfoView(0);                  // 没连上:常驻,让用户重试
+  }
 
   String j = "{\"ok\":1,\"sta\":";
   j += staConnected ? "true" : "false";
@@ -2415,8 +2469,13 @@ void setup() {
     startMDNS();
   }
 
-  drawWifiScreen();
-  bootScreenDeadline = millis() + BOOT_INFO_MS;
+  if (savedSSID.length() == 0) {
+    enterBootInfoView(0);                  // 未配置:常驻直到配置完成
+  } else if (staConnected) {
+    enterBootInfoView(BOOT_CONFIRM_MS);    // 已连上:3s 确认 IP 后进表情
+  } else {
+    enterBootInfoView(BOOT_INFO_MS);       // 配了但还没连上:10s 兜底
+  }
 
   // ── Register routes ────────────────────────────────────────
   server.on("/",            HTTP_GET, routeRoot);
@@ -2441,9 +2500,8 @@ void setup() {
 
 void loop() {
   server.handleClient();
-  if (bootScreenDeadline && millis() >= bootScreenDeadline) {
-    bootScreenDeadline = 0;
-    enterMonitorView();
+  if (currentView == VIEW_BOOTINFO && bootScreenDeadline && millis() >= bootScreenDeadline) {
+    enterMonitorView();   // enterMonitorView 内部已置 bootScreenDeadline = 0
   }
   checkStatusTimeout();
   checkIdleRotation();
@@ -2457,7 +2515,10 @@ void loop() {
       staConnected = (WiFi.status() == WL_CONNECTED);
       if (staConnected) {
         staIP = WiFi.localIP().toString();
-        if (!wasConnected) startMDNS();   // 后台自行连上(开机连接超时后):补注册 mDNS
+        if (!wasConnected) startMDNS();
+        if (!wasConnected && currentView == VIEW_BOOTINFO) {
+          enterBootInfoView(BOOT_CONFIRM_MS);   // 后台连上:刷新成绿色 IP + 3s 确认
+        }
       } else {
         staIP = "";
         if (wasConnected) {
