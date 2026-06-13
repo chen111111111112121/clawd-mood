@@ -9,12 +9,24 @@
 | Claude Code 事件 | 设备状态 | 屏幕表现 |
 | ---------------- | -------- | -------- |
 | `SessionStart` | `idle` | Normal Eyes |
-| `UserPromptSubmit` | `thinking` | Squish Eyes |
+| `UserPromptSubmit` | `thinking` | 微眯眼 + 省略号 `···` |
 | `PreToolUse` | `working` | 按工具六种姿态 + 底部 ticker（见「工具语义」节） |
 | `PostToolUse` | `working` | 按工具六种姿态 + 底部 ticker（见「工具语义」节） |
 | `Stop` | `done` | 开心笑眼 + 闪光 → 自动 idle |
-| `Notification` | `alert` | Logo 动画 |
+| `Notification` / `Elicitation` | `alert` | 警觉眼 + 上方 "!" 角标（仅真正需确认/输入时；`Notification` 经 `notificationIsAlert` 过滤待命提醒） |
+| `PostToolUseFailure` | `working` | 工具失败保持工作态，不再弹 alert |
+| `StopFailure` | `idle` | 失败收尾回 idle |
 | `SessionEnd` | `offline` | Normal Eyes + 关闭背光 |
+
+## 多 AI 工具绑定（PC 控制台）
+
+设备一次只响应一款被绑定的 AI 工具。绑定由 PC 控制台（`agent/`）写入 `~/.clawd-mood/agent.json` 的 `activeTool`，hook 据此自我门控：
+
+- hook 用 `CLAWD_SOURCE=<id>`（或 `--source=<id>`）声明自身来源；未声明时按事件名大小写推断（PascalCase=cc / camelCase=cursor）。
+- 若 `activeTool` 已设且 ≠ 本次来源 → hook 静默退出，不推设备。
+- `activeTool` 为空/无配置 → 不门控（与旧版单工具行为一致）。
+
+启动控制台：`node agent/clawd-agent.js`，浏览器开 `http://127.0.0.1:6624` 单选当前工具。
 
 ## 工具语义（act/info）
 
@@ -94,7 +106,7 @@ node clawd-hook.js UserPromptSubmit
 node clawd-hook.js Stop
 ```
 
-设备应依次切换为普通眼、眯眼、普通眼。
+设备应依次切换为普通眼、思考（微眯眼 + 省略号 `···`）、普通眼。
 
 ### 3. 配置 Claude Code Hooks
 
@@ -157,8 +169,8 @@ cd hook
 
 脚本会：
 
-1. 复制 `clawd-hook.js` 到 `%USERPROFILE%\.clawd-mochi\hook\`
-2. 写入 `%USERPROFILE%\.clawd-mochi\hook\device.json`
+1. 复制 `clawd-hook.js` 到 `%USERPROFILE%\.clawd-mood\hook\`
+2. 写入 `%USERPROFILE%\.clawd-mood\hook\device.json`
 3. 写入 Cursor 全局 `%USERPROFILE%\.cursor\hooks.json`
 4. **合并** Claude Code `%USERPROFILE%\.claude\settings.json` 的 `hooks`（不覆盖其他设置）
 
@@ -166,7 +178,7 @@ cd hook
 仅装 Claude Code：加 `-SkipCursor`
 
 IP 变更时重跑：`.\install-global.ps1 -DeviceIP <新IP>`  
-或只编辑 `%USERPROFILE%\.clawd-mochi\hook\device.json`
+或只编辑 `%USERPROFILE%\.clawd-mood\hook\device.json`
 
 重启 Cursor（Agent 模式）或 Claude Code（新会话）后生效。
 
@@ -190,13 +202,13 @@ copy hook\cursor-hooks.json.example %USERPROFILE%\.cursor\hooks.json
 | Cursor 事件 | 设备状态 | 屏幕表现 |
 | ----------- | -------- | -------- |
 | `sessionStart` | `idle` | 空闲动画 |
-| `beforeSubmitPrompt` | `thinking` | 眯眼 |
+| `beforeSubmitPrompt` | `thinking` | 微眯眼 + 省略号 `···` |
 | `preToolUse` / `postToolUse` | `working` | 快速扫视 |
 | `subagentStart` / `subagentStop` | `working` | 快速扫视 |
 | `stop` | `done` | 闪光庆祝 → idle |
 | `sessionEnd` | `offline` | 关背光 |
-| `postToolUseFailure` | `alert` | Logo 动画 |
-| `preCompact` | `thinking` | 眯眼 |
+| `postToolUseFailure` | `working` | 保持工作态（不再弹 alert） |
+| `preCompact` | `thinking` | 微眯眼 + 省略号 `···` |
 
 > 未映射的事件（如 `afterAgentThought`）会静默跳过，避免刷屏。
 
@@ -216,7 +228,7 @@ echo '{"hook_event_name":"beforeSubmitPrompt"}' | & "D:\nodejs\node.exe" "D:/Des
 
 ## 设备端 WiFi 配置
 
-1. 手机连接设备热点 `ClaWD-Mochi` / `clawd1234`
+1. 手机连接设备热点 `ClaWD-Mood` / `clawd1234`
 2. 浏览器打开 `http://192.168.4.1`
 3. 在 **wifi setup** 区域输入家里 WiFi 的 SSID 和密码
 4. 点击 **Save & Connect**

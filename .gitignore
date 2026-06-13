@@ -29,3 +29,12 @@ desktop.ini
 
 # mDNS IP cache (auto-generated at runtime)
 hook/device-cache.json
+
+# 内部设计文档(AI 协作过程产物,不公开)
+docs/superpowers/
+
+# 本地设备配置(含 IP/主机名;用 device.json.example 作模板)
+hook/device.json
+
+# 项目级 Cursor 配置(指向本机全局路径,不可移植;用 cursor-hooks.json.example)
+.cursor/hooks.json

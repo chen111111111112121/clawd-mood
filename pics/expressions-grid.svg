@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 724 724" width="724" height="724" font-family="'Segoe UI',system-ui,sans-serif">
+  <!-- (0,0) 普通 -->
+  <g transform="translate(126,126)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <rect x="-47" y="-26" width="26" height="52" rx="6" fill="#000"/>
+    <rect x="21" y="-26" width="26" height="52" rx="6" fill="#000"/>
+  </g>
+
+  <!-- (1,0) 开心 -->
+  <g transform="translate(362,126)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <path d="M-52,-4 Q-34,20 -16,-4" stroke="#000" stroke-width="12" stroke-linecap="round" fill="none"/>
+    <path d="M16,-4 Q34,20 52,-4" stroke="#000" stroke-width="12" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- (2,0) 爱心 -->
+  <g transform="translate(598,126)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <path transform="translate(-34,-2) scale(1.5)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#000"/>
+    <path transform="translate(34,-2) scale(1.5)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#000"/>
+  </g>
+
+  <!-- (0,1) 星星眼 -->
+  <g transform="translate(126,362)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <path transform="translate(-34,2) scale(1.2)" d="M0,-12 L3.5,-4.8 L11.4,-3.7 L5.7,1.9 L7,9.7 L0,6 L-7,9.7 L-5.7,1.9 L-11.4,-3.7 L-3.5,-4.8 Z" fill="#000"/>
+    <path transform="translate(34,2) scale(1.2)" d="M0,-12 L3.5,-4.8 L11.4,-3.7 L5.7,1.9 L7,9.7 L0,6 L-7,9.7 L-5.7,1.9 L-11.4,-3.7 L-3.5,-4.8 Z" fill="#000"/>
+    <g fill="#fff"><circle cx="-58" cy="-44" r="3"/><circle cx="60" cy="-50" r="3"/><circle cx="62" cy="40" r="2.5"/></g>
+  </g>
+
+  <!-- (1,1) 好奇 -->
+  <g transform="translate(362,362)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <rect x="-47" y="-22" width="26" height="48" rx="6" fill="#000"/>
+    <rect x="21" y="-22" width="26" height="48" rx="6" fill="#000"/>
+    <text x="0" y="-44" text-anchor="middle" font-size="40" font-weight="700" fill="#fff">?</text>
+  </g>
+
+  <!-- (2,1) 困倦 -->
+  <g transform="translate(598,362)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <rect x="-47" y="4" width="26" height="16" rx="5" fill="#000"/>
+    <rect x="21" y="4" width="26" height="16" rx="5" fill="#000"/>
+    <text x="34" y="-30" text-anchor="middle" font-size="22" font-weight="700" fill="#fff">z</text>
+    <text x="56" y="-50" text-anchor="middle" font-size="30" font-weight="700" fill="#fff">z</text>
+  </g>
+
+  <!-- (0,2) 思考 -->
+  <g transform="translate(126,598)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <rect x="-47" y="2" width="26" height="26" rx="6" fill="#000"/>
+    <rect x="21" y="2" width="26" height="26" rx="6" fill="#000"/>
+    <g fill="#000"><circle cx="-24" cy="-46" r="6"/><circle cx="0" cy="-50" r="6"/><circle cx="24" cy="-46" r="6"/></g>
+  </g>
+
+  <!-- (1,2) 惊讶 -->
+  <g transform="translate(362,598)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <rect x="-49" y="-30" width="30" height="60" rx="6" fill="#000"/>
+    <rect x="19" y="-30" width="30" height="60" rx="6" fill="#000"/>
+    <text x="0" y="-42" text-anchor="middle" font-size="42" font-weight="800" fill="#fff">!</text>
+  </g>
+
+  <!-- (2,2) 花痴 -->
+  <g transform="translate(598,598)">
+    <rect x="-110" y="-110" width="220" height="220" rx="28" fill="#DA1100"/>
+    <path transform="translate(-34,0) scale(1.4)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#000"/>
+    <path transform="translate(34,0) scale(1.4)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#000"/>
+    <path transform="translate(-50,-52) scale(0.7)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#ff7aa2"/>
+    <path transform="translate(52,-44) scale(0.55)" d="M0,-4 C0,-9 -7,-11 -11,-6 C-15,-1 -12,5 0,14 C12,5 15,-1 11,-6 C7,-11 0,-9 0,-4 Z" fill="#ff7aa2"/>
+  </g>
+</svg>
