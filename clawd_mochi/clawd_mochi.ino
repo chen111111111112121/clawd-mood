@@ -1833,7 +1833,7 @@ canvas{width:100%;border-radius:8px;border:1.5px solid #38343a;
     <span class="wlbl">ON YOUR PC — run in the repo's hook/ folder</span>
     <code id="wcmd" style="display:block;background:#1c1b1f;border:1px solid #38343a;border-radius:6px;padding:8px;font-size:11px;color:#d8d4cc;word-break:break-all"></code>
     <button class="wgo" onclick="copyCmd()">Copy command</button>
-    <span class="wstat">Tip: <code>.\\install-global.ps1</code> with no IP also auto-finds the device.</span>
+    <span class="wstat">Tip: <code>.\install-global.ps1</code> with no IP also auto-finds the device.</span>
   </div>
 </div>
 
