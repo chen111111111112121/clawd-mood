@@ -316,16 +316,6 @@ void initColours() {
 //  WIFI + MONITOR
 // ═════════════════════════════════════════════════════════════
 
-const char* monitorStateStr() {
-  switch (monitorState) {
-    case MON_THINKING: return "thinking";
-    case MON_WORKING:  return "working";
-    case MON_ALERT:    return "alert";
-    case MON_OFFLINE:  return "offline";
-    default:           return "idle";
-  }
-}
-
 void loadWifiCredentials() {
   savedSSID = prefs.getString("ssid", "");
   savedPASS = prefs.getString("pass", "");
@@ -2667,127 +2657,6 @@ void routeRoot() {
   server.send_P(200, "text/html", INDEX_HTML);
 }
 
-void routeCmd() {
-  if (!server.hasArg("k") || server.arg("k").isEmpty()) {
-    server.send(400, "application/json", "{\"e\":1}"); return;
-  }
-  const char c = server.arg("k")[0];
-
-  if (termMode) {
-    if (c == 'q') { termMode = false; drawCodeView(); }
-    server.send(200, "application/json", "{\"ok\":1}"); return;
-  }
-
-  server.send(200, "application/json", "{\"ok\":1}");
-  bootScreenDeadline = 0;   // 任何有效按键取消开机信息屏倒计时
-  switch (c) {
-    case 'w': currentView = VIEW_EYES_NORMAL; animNormalEyes(); break;
-    case 's': currentView = VIEW_EYES_SQUISH; animSquishEyes(); break;
-    case 'd':
-      currentView = VIEW_CODE; drawCodeView();
-      termMode = true; termClear(); termFullRedraw(); break;
-    case 'm':
-      enterMonitorView();
-      break;
-    case 'a':
-      currentView = VIEW_EYES_NORMAL;
-      animBootGreeting();
-      break;
-    case 'i':
-      enterBootInfoView(0);   // 召回信息屏,常驻直到下次切视图
-      break;
-  }
-}
-
-void routeChar() {
-  if (!termMode) { server.send(200, "application/json", "{\"ok\":1}"); return; }
-  const String val = server.arg("c");
-  if (val.length() > 0) termAddChar(val[0]);
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-void routeSpeed() {
-  if (server.hasArg("v")) animSpeed = constrain(server.arg("v").toInt(), 1, 3);
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-// /redraw?bg=hex — set animBg and immediately redraw current view
-void routeRedraw() {
-  if (server.hasArg("bg")) {
-    animBgColor = hexToRgb565(server.arg("bg"));
-    drawBgColor = animBgColor;
-  }
-  switch (currentView) {
-    case VIEW_EYES_NORMAL: drawNormalEyes(); break;
-    case VIEW_EYES_SQUISH: drawSquishEyes(); break;
-    case VIEW_CODE:        drawCodeView();   break;
-    case VIEW_DRAW:        tft.fillScreen(drawBgColor); break;
-    case VIEW_BOOTINFO:
-      // 信息屏用固定深色背景(C_DARKBG),不随 /redraw 的 bg 改变;刻意不重绘以免刷错倒计时文案
-      break;
-    case VIEW_MONITOR:
-      switch (monitorState) {
-        case MON_OFFLINE:
-          drawNormalEyes();
-          break;
-        default:
-          rigApplyExpression(true);   // 含 ALERT:换背景色后整区重绘眼睛(角标由 tick 补画)
-          break;
-      }
-      break;
-  }
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-void routeCanvas() {
-  const bool on = server.hasArg("on") && server.arg("on") == "1";
-  if (on) { bootScreenDeadline = 0; currentView = VIEW_DRAW; tft.fillScreen(drawBgColor); }
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-void routeDrawClear() {
-  bootScreenDeadline = 0;   // 画布清除也取消开机信息屏倒计时
-  const String bg = server.hasArg("bg") ? server.arg("bg") : "#aa4818";
-  drawBgColor = hexToRgb565(bg);
-  animBgColor = drawBgColor;  // keep in sync
-  currentView = VIEW_DRAW; termMode = false;
-  tft.fillScreen(drawBgColor);
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-void routeDrawStroke() {
-  if (!server.hasArg("pts") || !server.hasArg("pen")) {
-    server.send(200, "application/json", "{\"ok\":1}"); return;
-  }
-  const uint16_t color = hexToRgb565(server.arg("pen"));
-  const String   data  = server.arg("pts");
-  currentView = VIEW_DRAW;
-
-  struct Pt { int16_t x, y; };
-  Pt prev = {-1, -1};
-  int start = 0;
-  while (start < (int)data.length()) {
-    int semi = data.indexOf(';', start);
-    if (semi == -1) semi = data.length();
-    String entry = data.substring(start, semi);
-    const int comma = entry.indexOf(',');
-    if (comma > 0) {
-      const int16_t x = entry.substring(0, comma).toInt();
-      const int16_t y = entry.substring(comma + 1).toInt();
-      if (prev.x >= 0) {
-        tft.drawLine(prev.x, prev.y, x, y, color);
-        tft.drawLine(prev.x + 1, prev.y, x + 1, y, color);
-        tft.drawLine(prev.x, prev.y + 1, x, y + 1, color);
-      } else {
-        tft.fillCircle(x, y, 2, color);
-      }
-      prev = {x, y};
-    }
-    start = semi + 1;
-  }
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
 void routeStatus() {
   if (!server.hasArg("s") || server.arg("s").isEmpty()) {
     server.send(400, "application/json", "{\"e\":1}");
@@ -2823,37 +2692,6 @@ void routeWifiSave() {
   j += ",\"sta_ip\":\"";
   j += staIP;
   j += "\"}";
-  server.send(200, "application/json", j);
-}
-
-void routeBacklight() {
-  setBacklight(server.hasArg("on") && server.arg("on") == "1");
-  server.send(200, "application/json", "{\"ok\":1}");
-}
-
-// Convert RGB565 back to #RRGGBB for state endpoint
-String rgb565ToHex(uint16_t c) {
-  uint8_t r = ((c >> 11) & 0x1F) << 3;
-  uint8_t g = ((c >> 5)  & 0x3F) << 2;
-  uint8_t b = (c & 0x1F) << 3;
-  char buf[8];
-  snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
-  return String(buf);
-}
-
-void routeState() {
-  String j = "{\"view\":"; j += currentView;
-  j += ",\"busy\":";   j += busy        ? "true" : "false";
-  j += ",\"term\":";   j += termMode    ? "true" : "false";
-  j += ",\"bl\":";     j += backlightOn ? "true" : "false";
-  j += ",\"speed\":";  j += animSpeed;
-  j += ",\"mstate\":\""; j += monitorStateStr(); j += "\"";
-  j += ",\"sta\":";    j += staConnected ? "true" : "false";
-  j += ",\"sta_ip\":\""; j += staIP; j += "\"";
-  j += ",\"monitor\":"; j += (currentView == VIEW_MONITOR) ? "true" : "false";
-  j += ",\"last_status\":";
-  j += (lastStatusMs == 0) ? 0 : (int)((millis() - lastStatusMs) / 1000);
-  j += "}";
   server.send(200, "application/json", j);
 }
 
@@ -2900,17 +2738,8 @@ void setup() {
 
   // ── Register routes ────────────────────────────────────────
   server.on("/",            HTTP_GET, routeRoot);
-  server.on("/cmd",         HTTP_GET, routeCmd);
-  server.on("/char",        HTTP_GET, routeChar);
-  server.on("/speed",       HTTP_GET, routeSpeed);
-  server.on("/redraw",      HTTP_GET, routeRedraw);
-  server.on("/canvas",      HTTP_GET, routeCanvas);
-  server.on("/draw/clear",  HTTP_GET, routeDrawClear);
-  server.on("/draw/stroke", HTTP_GET, routeDrawStroke);
-  server.on("/backlight",   HTTP_GET, routeBacklight);
   server.on("/status",      HTTP_GET, routeStatus);
   server.on("/wifi/save",   HTTP_GET, routeWifiSave);
-  server.on("/state",       HTTP_GET, routeState);
   server.onNotFound(routeNotFound);
   server.begin();
 }
