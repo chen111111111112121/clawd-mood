@@ -2015,8 +2015,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
     case MON_ALERT:
       if (!backlightOn) setBacklight(true);
       rigApplyExpression(entering);   // 警觉眼 + 上方 "!" 角标,不再整屏 logo
-      tickerVisible = false;
-      tickerDrawn[0] = 0;
+      clearTicker();                  // 擦掉 working 残留的底部跑马灯(只改标志不擦屏会留像素)
       break;
     case MON_OFFLINE:
       drawNormalEyes();
