@@ -168,7 +168,6 @@ uint8_t lastRenderKey = 255;
 int16_t lastTickOx    = -999;
 bool    lastTickBlink = false;
 int16_t lastTickScanOx = -999;
-uint8_t lastTickSquishState = 255;
 uint8_t lastTickHeartScale   = 255;
 int16_t lastSleepyTop        = -999;
 uint8_t lastSleepyZ          = 255;
@@ -269,13 +268,6 @@ int speedMs(int ms) {
   if (animSpeed == 3) return ms / 2;
   if (animSpeed == 1) return ms * 2;
   return ms;
-}
-
-uint16_t hexToRgb565(String hex) {
-  hex.replace("#", "");
-  if (hex.length() != 6) return C_WHITE;
-  long v = strtol(hex.c_str(), nullptr, 16);
-  return tft.color565((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
 }
 
 void setBacklight(bool on) {
@@ -401,7 +393,6 @@ void ensureFullExpressionBg() {
     prevEyeR.valid = false;
     lastTickOx = -999;
     lastTickScanOx = -999;
-    lastTickSquishState = 255;
     lastTickHeartScale = 255;
     lastSleepyTop = -999;
     lastSleepyZ = 255;
