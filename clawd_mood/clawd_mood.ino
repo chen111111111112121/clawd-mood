@@ -1670,8 +1670,8 @@ void animBootGreeting() {
     int16_t vis = 6 + (int16_t)((EYE_H - 6) * e);
     if (vis > EYE_H) vis = EYE_H;
     const int16_t top = ecy - vis / 2;
-    tft.fillRect(lx, ey, EYE_W, EYE_H, animBgColor);  // 擦旧帧
-    tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);
+    // 眼睛只增不减且居中,黑块逐帧"长大"覆盖上一帧,无需擦背景
+    // → 避免"先刷背景再画黑"造成的脉动闪烁(见 blitBitmapEye/eraseRectOutside 注释)
     tft.fillRect(lx, top, EYE_W, vis, C_BLACK);
     tft.fillRect(rx, top, EYE_W, vis, C_BLACK);
     server.handleClient();
@@ -1692,11 +1692,12 @@ void animBootGreeting() {
   drawStarAt(206, 34, 3, C_WHITE);               // 右上小星(避开眼睛)
   server.handleClient();
   delay(speedMs(120));
-  tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);   // 右眼闭
-  tft.fillRect(rx, ecy - 3, EYE_W, 6, C_BLACK);
+  // 右眼闭:只擦细缝上下两条,中间黑缝保持不动(已是黑),避免整块橙闪
+  tft.fillRect(rx, ey, EYE_W, (ecy - 3) - ey, animBgColor);
+  tft.fillRect(rx, ecy + 3, EYE_W, (ey + EYE_H) - (ecy + 3), animBgColor);
   server.handleClient();
   delay(speedMs(170));
-  tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);   // 右眼睁回
+  // 右眼睁回:黑块直接长大覆盖细缝,无需先擦背景
   tft.fillRect(rx, ey, EYE_W, EYE_H, C_BLACK);
   server.handleClient();
 
