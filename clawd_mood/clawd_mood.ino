@@ -1769,24 +1769,66 @@ void animSquishEyes() {
   busy = false;
 }
 
-void animLogoReveal() {
+// 开机动画:缓缓睁眼 + 俏皮 wink 打招呼(纯图形,无文字)。
+// 阻塞式,仅在 setup() / routeCmd 'a' 调用;复用现有绘图常量与 drawHappyArc/drawStarAt。
+void animBootGreeting() {
   busy = true;
+  const int16_t lx = eyeLX(0), rx = eyeRX(0), ey = eyeY();  // 与其它动画一致的眼睛布局
+  const int16_t ecy = eyeCY();                              // 眼中心 y
+  const int16_t lcx = lx + EYE_W / 2;           // 左眼中心 x = 45
+  const int16_t rcx = rx + EYE_W / 2;           // 右眼中心 x = 195
+  const int16_t bw = 26, bh = 12, by = 116;     // 腮红块(同 IDLE_SHY)
+
   tft.fillScreen(animBgColor);
-  for (uint16_t i = 0; i < LOGO_SEG_COUNT; i++) {
-    int16_t x1 = pgm_read_word(&LOGO_SEGS[i][0]);
-    int16_t y1 = pgm_read_word(&LOGO_SEGS[i][1]);
-    int16_t x2 = pgm_read_word(&LOGO_SEGS[i][2]);
-    int16_t y2 = pgm_read_word(&LOGO_SEGS[i][3]);
-    tft.drawLine(x1, y1, x2, y2, C_WHITE);
-    tft.drawLine(x1 + 1, y1, x2 + 1, y2, C_WHITE);
-    if (i % 4 == 0) { server.handleClient(); delay(speedMs(8)); }
+
+  // 1) 闭眼:居中黑细线 ~0.2s
+  tft.fillRect(lx, ecy - 3, EYE_W, 6, C_BLACK);
+  tft.fillRect(rx, ecy - 3, EYE_W, 6, C_BLACK);
+  server.handleClient();
+  delay(speedMs(200));
+
+  // 2) 缓缓睁开:可见高度 6 -> 60,居中展开,easeOutQuad ~1.0s
+  const uint8_t OPEN_STEPS = 18;
+  for (uint8_t s = 1; s <= OPEN_STEPS; s++) {
+    float t = (float)s / OPEN_STEPS;
+    float e = 1.0f - (1.0f - t) * (1.0f - t);   // ease-out
+    int16_t vis = 6 + (int16_t)((EYE_H - 6) * e);
+    if (vis > EYE_H) vis = EYE_H;
+    const int16_t top = ecy - vis / 2;
+    tft.fillRect(lx, ey, EYE_W, EYE_H, animBgColor);  // 擦旧帧
+    tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);
+    tft.fillRect(lx, top, EYE_W, vis, C_BLACK);
+    tft.fillRect(rx, top, EYE_W, vis, C_BLACK);
+    server.handleClient();
+    delay(speedMs(55));                          // 18*55 ≈ 1.0s
   }
-  drawLogoFilled(animBgColor, C_WHITE);
-  delay(1500);
-  // logo 整屏覆盖了表情渲染记账(lastRenderKey)之外的区域(尤其顶部 y<28)。
-  // 作废 key,确保离开 ALERT 后下一帧表情强制整屏清,否则前后同状态(如 working→alert→working)
-  // 会因 key 未变跳过整屏清,只清表情区而残留 logo 顶部。
-  lastRenderKey = 255;
+
+  // 3) 腮红浮现 ~0.3s(分级放大近似淡入)
+  for (uint8_t k = 1; k <= 3; k++) {
+    const int16_t w = bw * k / 3, h = bh * k / 3;
+    tft.fillRoundRect(lcx - w / 2, by + (bh - h) / 2, w, h, 4, C_BLUSH);
+    tft.fillRoundRect(rcx - w / 2, by + (bh - h) / 2, w, h, 4, C_BLUSH);
+    server.handleClient();
+    delay(speedMs(90));
+  }
+
+  // 4) 打招呼:上扬小嘴 + 右上小星 + 右眼眨一下 ~0.3s
+  drawHappyArc(DISP_W / 2, 150, 40, C_BLACK);    // 上扬小嘴(同 IDLE_WINK)
+  drawStarAt(206, 34, 3, C_WHITE);               // 右上小星(避开眼睛)
+  server.handleClient();
+  delay(speedMs(120));
+  tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);   // 右眼闭
+  tft.fillRect(rx, ecy - 3, EYE_W, 6, C_BLACK);
+  server.handleClient();
+  delay(speedMs(170));
+  tft.fillRect(rx, ey, EYE_W, EYE_H, animBgColor);   // 右眼睁回
+  tft.fillRect(rx, ey, EYE_W, EYE_H, C_BLACK);
+  server.handleClient();
+
+  // 5) 定格 ~0.5s
+  delay(speedMs(500));
+
+  lastRenderKey = 255;   // 作废渲染记账,确保后续表情整屏重绘(沿用旧逻辑)
   busy = false;
 }
 
@@ -2774,7 +2816,7 @@ void routeCmd() {
       break;
     case 'a':
       currentView = VIEW_EYES_NORMAL;
-      animLogoReveal();
+      animBootGreeting();
       break;
     case 'i':
       enterBootInfoView(0);   // 召回信息屏,常驻直到下次切视图
@@ -2959,15 +3001,8 @@ void setup() {
   tft.setRotation(1);
   initColours();
 
-  // ── Boot splash ────────────────────────────────────────────
-  tft.fillScreen(animBgColor);
-  tft.setTextColor(C_WHITE); tft.setTextSize(3);
-  tft.setCursor(DISP_W / 2 - 54, DISP_H / 2 - 22); tft.print("Clawd");
-  tft.setCursor(DISP_W / 2 - 54, DISP_H / 2 + 14); tft.print("Mochi");
-  delay(1200);
-
-  // ── Logo shown once at startup ─────────────────────────────
-  animLogoReveal();
+  // ── Boot greeting shown once at startup ────────────────────
+  animBootGreeting();
 
   // ── Start WiFi (AP + optional STA) ─────────────────────────
   prefs.begin("clawd", false);
