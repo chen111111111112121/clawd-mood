@@ -66,10 +66,6 @@ uint16_t C_ORANGE, C_DARKBG, C_MUTED, C_GREEN, C_BLUSH;
 #define C_BLACK ST77XX_BLACK
 
 // ── State ─────────────────────────────────────────────────────
-#define VIEW_EYES_NORMAL 0
-#define VIEW_EYES_SQUISH 1
-#define VIEW_CODE        2
-#define VIEW_DRAW        3
 #define VIEW_MONITOR     4
 #define VIEW_BOOTINFO    5
 
@@ -143,7 +139,7 @@ bool    tickerVisible = false;
 #define TICKER_H    (DISP_H - TICKER_Y)
 #define TICKER_COLS 19
 
-uint8_t  currentView   = VIEW_EYES_NORMAL;
+uint8_t  currentView   = VIEW_MONITOR;
 uint8_t  monitorState  = MON_IDLE;
 uint8_t  currentIdleIndex = 0;
 uint8_t  currentIdleExpr  = IDLE_NORMAL;
@@ -182,7 +178,6 @@ bool     backlightOn  = true;
 uint8_t  animSpeed    = 2;   // 1=slow 2=normal(default) 3=fast
 
 uint16_t animBgColor  = 0;   // background for eye/logo animations
-uint16_t drawBgColor  = 0;   // background for canvas
 
 // ── Eye rig: lively expression engine ────────────────────────
 enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART, STYLE_STAR };
@@ -296,7 +291,6 @@ void initColours() {
   C_GREEN  = tft.color565(80, 220, 130);
   C_BLUSH  = tft.color565(255, 92, 120);   // 害羞腮红(粉)
   animBgColor = C_ORANGE;
-  drawBgColor = C_ORANGE;
 }
 
 // ═════════════════════════════════════════════════════════════
