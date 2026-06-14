@@ -480,40 +480,6 @@ void drawChevron(int16_t cx, int16_t cy, int16_t arm, int16_t reach,
   }
 }
 
-void drawSquishEyes(bool closed = false, bool optimized = false) {
-  if (optimized) {
-    if ((uint8_t)closed == lastTickSquishState) return;
-    ensureFullExpressionBg();
-    clearExpressionZone();
-  } else {
-    tft.fillScreen(animBgColor);
-  }
-  const int16_t lx = eyeLX(0), rx = eyeRX(0), cy = eyeCY();
-  const int16_t arm   = EYE_H / 2;
-  const int16_t reach = EYE_W / 2;
-  const int16_t lcx   = lx + EYE_W / 2;
-  const int16_t rcx   = rx + EYE_W / 2;
-  if (!closed) {
-    drawChevron(lcx, cy, arm, reach, 10, true,  C_BLACK);
-    drawChevron(rcx, cy, arm, reach, 10, false, C_BLACK);
-  } else {
-    tft.fillRect(lx, cy - 5, EYE_W, 10, C_BLACK);
-    tft.fillRect(rx, cy - 5, EYE_W, 10, C_BLACK);
-  }
-  if (optimized) lastTickSquishState = (uint8_t)closed;
-}
-
-void drawCodeView() {
-  termMode = false;
-  tft.fillScreen(C_DARKBG);
-  tft.fillRect(0, 0,          DISP_W, 4, C_ORANGE);
-  tft.fillRect(0, DISP_H - 4, DISP_W, 4, C_ORANGE);
-  tft.setTextColor(C_ORANGE); tft.setTextSize(4);
-  tft.setCursor((DISP_W - 144) / 2, DISP_H / 2 - 52); tft.print("Claude");
-  tft.setTextColor(C_WHITE);  tft.setTextSize(4);
-  tft.setCursor((DISP_W - 96) / 2,  DISP_H / 2 + 8);  tft.print("Code");
-  tft.fillRect((DISP_W - 96) / 2, DISP_H / 2 + 52, 96, 3, C_ORANGE);
-}
 
 // ── Extended idle / work expressions ───────────────────────────
 
@@ -1624,18 +1590,8 @@ void animNormalEyes() {
   busy = false;
 }
 
-void animSquishEyes() {
-  busy = true;
-  for (uint8_t i = 0; i < 3; i++) {
-    drawSquishEyes(false); delay(speedMs(160));
-    drawSquishEyes(true);  delay(speedMs(100));
-  }
-  drawSquishEyes(false);
-  busy = false;
-}
-
 // 开机动画:缓缓睁眼 + 俏皮 wink 打招呼(纯图形,无文字)。
-// 阻塞式,仅在 setup() / routeCmd 'a' 调用;复用现有绘图常量与 drawHappyArc/drawStarAt。
+// 阻塞式,仅在 setup() 开机时调用;复用现有绘图常量与 drawHappyArc/drawStarAt。
 void animBootGreeting() {
   busy = true;
   const int16_t lx = eyeLX(0), rx = eyeRX(0), ey = eyeY();  // 与其它动画一致的眼睛布局
