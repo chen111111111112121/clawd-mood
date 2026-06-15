@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mochi 唤醒过场 · 动态预览</title>
+<style>
+  :root{ --orange:#DA1100; --ink:#0a0c10; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#15171c;color:#e8e6e3;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;padding:28px 16px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:19px;font-weight:650;letter-spacing:.3px;margin:0 0 4px}
+  .sub{color:#8b8985;font-size:12.5px;margin-bottom:24px;text-align:center}
+  .stage{display:flex;gap:40px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  /* device */
+  .device{position:relative;padding:18px;border-radius:34px;
+          background:linear-gradient(160deg,#3a3d44,#212329 60%,#16181d);
+          box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+  .screen-wrap{position:relative;width:300px;height:300px;border-radius:14px;overflow:hidden;
+               background:#000;box-shadow:inset 0 0 0 2px #000,0 0 0 6px #0c0d10}
+  canvas{display:block;width:300px;height:300px}
+  .phase{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12px;letter-spacing:2px;
+         color:rgba(255,255,255,.78);text-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none;
+         font-weight:600;transition:opacity .2s}
+  .led{position:absolute;top:7px;right:18px;width:5px;height:5px;border-radius:50%;background:#2b2e34}
+  /* panel */
+  .panel{width:300px;min-width:260px}
+  .card{background:#1d2026;border:1px solid #2a2e36;border-radius:14px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#7d7b78;margin:0 0 12px;font-weight:700}
+  .btn{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:1px solid #33383f;
+       background:#23272e;color:#e8e6e3;border-radius:11px;padding:12px 14px;font-size:14px;cursor:pointer;
+       margin-bottom:9px;transition:.13s;font-weight:600}
+  .btn:hover{background:#2b3038;border-color:#454b54}
+  .btn.active{border-color:var(--orange);background:#2a1f1e;box-shadow:0 0 0 1px rgba(218,17,0,.4)}
+  .btn .ico{font-size:17px;width:22px;text-align:center}
+  .btn small{display:block;font-weight:400;color:#8b8985;font-size:11.5px;margin-top:2px;letter-spacing:.2px}
+  .btn .lab{flex:1}
+  .row{display:flex;align-items:center;gap:10px;margin:10px 0}
+  .row label{font-size:12px;color:#9a9894;width:42px}
+  input[type=range]{flex:1;accent-color:var(--orange)}
+  .val{font-variant-numeric:tabular-nums;color:#c9c6c2;font-size:12px;width:38px;text-align:right}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#bdbab6;cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--orange);width:15px;height:15px}
+  .ctrls{display:flex;gap:8px;margin-top:4px}
+  .ctrls button{flex:1;border:1px solid #33383f;background:#23272e;color:#cfccc8;border-radius:9px;
+                padding:9px;cursor:pointer;font-size:12.5px;font-weight:600}
+  .ctrls button:hover{background:#2b3038}
+  .timeline{height:5px;background:#2a2e36;border-radius:3px;margin-top:14px;overflow:hidden}
+  .timeline .fill{height:100%;width:0;background:var(--orange);border-radius:3px}
+  .legend{font-size:11.5px;color:#75736f;line-height:1.7;margin-top:6px}
+  .legend b{color:#a8a5a1;font-weight:600}
+</style>
+</head>
+<body>
+  <h1>Mochi · 两种唤醒过场</h1>
+  <div class="sub">从睡眠被「编程活动」叫醒时的过场。忠于设备真实绘制（240×240 橙底 · 黑色圆角眼 · 白色 Zzz）。</div>
+
+  <div class="stage">
+    <div class="device">
+      <div class="led" id="led"></div>
+      <div class="screen-wrap">
+        <canvas id="cv" width="240" height="240"></canvas>
+        <div class="phase" id="phase">睡着 · zZ</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>选择过场播放</h2>
+        <button class="btn active" id="b-gentle" onclick="play('gentle')">
+          <span class="ico">☁️</span>
+          <span class="lab">温柔唤醒<small>浅睡 / 犯困被叫醒 · 揉眼 + 伸懒腰</small></span>
+        </button>
+        <button class="btn" id="b-startle" onclick="play('startle')">
+          <span class="ico">⚡</span>
+          <span class="lab">惊醒<small>熟睡被叫醒 · 眼睛弹大 +「!」+ 一哆嗦</small></span>
+        </button>
+        <div class="ctrls">
+          <button onclick="replay()">↻ 重播</button>
+          <button onclick="showRest()">⏸ 看睡姿</button>
+        </div>
+        <div class="timeline"><div class="fill" id="fill"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>播放控制</h2>
+        <div class="row">
+          <label>速度</label>
+          <input type="range" id="speed" min="0.25" max="2" step="0.05" value="1">
+          <span class="val" id="speedV">1.0×</span>
+        </div>
+        <div class="row">
+          <label>逐帧</label>
+          <input type="range" id="scrub" min="0" max="1000" step="1" value="0">
+          <span class="val" id="scrubV">0%</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="loop"> 循环播放</label>
+      </div>
+
+      <div class="legend">
+        <b>温柔</b>：睡着(Zzz飘) → 揉眼(慢眨几下) → 伸懒腰(眼睛挤压拉伸·身子轻晃) → 清醒<br>
+        <b>惊醒</b>：熟睡(沉·慢呼吸) → 弹眼+「!」 → 一哆嗦 → 回神 → 清醒
+      </div>
+    </div>
+  </div>
+
+<script>
+const cv = document.getElementById('cv');
+const g  = cv.getContext('2d');
+const W=240,H=240;
+const ORANGE='#DA1100', BLACK='#000', WHITE='#fff';
+
+// ── 设备眼睛几何（取自固件） ──
+const EYE_W=30, EYE_H=60;
+const LCX=45, RCX=195, ECY=80;   // 左右眼中心、眼中心Y
+
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const seg=(t,a,b)=>clamp((t-a)/(b-a),0,1);            // 区间归一
+const eio=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;        // easeInOut
+const eo=t=>1-Math.pow(1-t,3);                          // easeOut
+const eoBack=t=>{const c1=1.9,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);};
+
+// 圆角矩形眼（竖向胶囊）
+function eyeRect(cx, cy, w, visH){
+  visH=Math.max(visH,4);
+  const x=cx-w/2, y=cy-visH/2, r=Math.min(w/2, visH/2, 13);
+  g.fillStyle=BLACK;
+  g.beginPath();
+  g.moveTo(x+r,y);
+  g.arcTo(x+w,y,x+w,y+visH,r);
+  g.arcTo(x+w,y+visH,x,y+visH,r);
+  g.arcTo(x,y+visH,x,y,r);
+  g.arcTo(x,y,x+w,y,r);
+  g.closePath(); g.fill();
+}
+// 闭眼：向下弯的弧（⌣ 安睡）
+function eyeClosed(cx, cy, w, depth, thick){
+  g.strokeStyle=BLACK; g.lineWidth=thick||7; g.lineCap='round';
+  g.beginPath();
+  g.moveTo(cx-w/2, cy-depth*0.3);
+  g.quadraticCurveTo(cx, cy+depth, cx+w/2, cy-depth*0.3);
+  g.stroke();
+}
+// 一只眼：open=0闭~1全开（>1放大）; 用 closeAmt 决定走弧线还是矩形
+function drawEye(cx, cy, open, w){
+  w=w||EYE_W;
+  if(open<=0.16){
+    eyeClosed(cx, cy, w*0.92, lerp(2,7,open/0.16), 7);
+  }else{
+    eyeRect(cx, cy, w, EYE_H*open);
+  }
+}
+
+// 白色 z（由小变大向右上飘）
+function drawZ(x,y,size,alpha){
+  g.save(); g.globalAlpha=alpha; g.fillStyle=WHITE;
+  g.font=`700 ${size}px "Segoe UI",sans-serif`;
+  g.textBaseline='alphabetic';
+  g.fillText('z', x, y);
+  g.restore();
+}
+// 鼻涕泡：白圈+淡填充+高光，随呼吸吹大
+function drawBubble(cx,cy,r){
+  if(r<=0)return;
+  g.save();
+  g.fillStyle='rgba(255,255,255,0.22)';
+  g.beginPath();g.arc(cx,cy,r,0,7);g.fill();
+  g.strokeStyle=WHITE;g.lineWidth=2.2;
+  g.beginPath();g.arc(cx,cy,r,0,7);g.stroke();
+  g.fillStyle='rgba(255,255,255,0.9)';
+  g.beginPath();g.arc(cx-r*0.35,cy-r*0.35,Math.max(1.4,r*0.16),0,7);g.fill();
+  g.restore();
+}
+function drawPop(cx,cy,t){ // t:0..1 破裂飞溅
+  if(t<0||t>1)return;
+  g.save();g.globalAlpha=1-t;g.strokeStyle=WHITE;g.lineWidth=2;g.lineCap='round';
+  for(let i=0;i<6;i++){const a=i/6*Math.PI*2;const r0=6+t*16,r1=12+t*26;
+    g.beginPath();g.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);
+    g.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);g.stroke();}
+  g.restore();
+}
+function drawExcl(cx,cy,scale,alpha){
+  g.save(); g.globalAlpha=alpha; g.fillStyle=WHITE;
+  const h=26*scale, w=7*scale;
+  const x=cx-w/2, y=cy-h/2;
+  g.beginPath();                         // 竖条
+  const r=w/2;
+  g.moveTo(x+r,y);
+  g.arcTo(x+w,y,x+w,y+h*0.62,r); g.arcTo(x+w,y+h*0.62,x,y+h*0.62,r);
+  g.arcTo(x,y+h*0.62,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); g.fill();
+  g.beginPath();                         // 点
+  g.arc(cx, y+h*0.86, w*0.62, 0, 7); g.fill();
+  g.restore();
+}
+// 伸懒腰小弧（眼外侧动作线）
+function stretchMarks(alpha){
+  if(alpha<=0)return;
+  g.save();g.globalAlpha=alpha;g.strokeStyle=WHITE;g.lineWidth=2.4;g.lineCap='round';
+  for(const [cx,dir] of [[LCX,-1],[RCX,1]]){
+    for(let i=0;i<2;i++){
+      const off=18+i*8;
+      g.beginPath();
+      g.arc(cx+dir*off, ECY, 9+i*4, dir>0?-0.7:Math.PI-0.7, dir>0?0.7:Math.PI+0.7);
+      g.stroke();
+    }
+  }
+  g.restore();
+}
+
+// 呼吸晃动（睡眠时缓慢起伏），返回 y 偏移
+function breathe(ms, amp, period){ return Math.sin(ms/period*Math.PI*2)*amp; }
+
+// ── 帧计算：返回绘制所需的一切 ──
+const DUR={gentle:2900, startle:2700};
+
+function frameGentle(t, ms){
+  let open=0, w=EYE_W, dx=0, dy=0, faceScale=1, zzz=1, stretch=0, label='睡着 · zZ';
+  dy += breathe(ms, 2.2, 2600);                 // 睡眠呼吸
+  if(t<700){                                     // A 睡着
+    open=0; zzz=1; label='睡着 · zZ';
+  }else if(t<1000){                              // B Zzz 散去
+    open=0; zzz=1-seg(t,700,1000); label='…';
+  }else if(t<1750){                              // C 揉眼：慢眨几下
+    const p=seg(t,1000,1750); zzz=0; label='揉眼…';
+    const base=lerp(0.08,0.6,eo(p));
+    const wob=0.32*Math.sin(p*Math.PI*2*1.6);    // 揉眼起伏
+    open=clamp(base - Math.max(0,wob)*(1-p*0.4), 0, 1);
+    dy += -2*p;
+  }else if(t<2350){                              // D 伸懒腰
+    const p=seg(t,1750,2350); zzz=0; label='伸懒腰～';
+    open=lerp(0.6,1,eio(p));
+    const s=Math.sin(p*Math.PI);
+    faceScale=1+0.06*s; dy+=-7*s; w=EYE_W*(1+0.10*s);
+    stretch=Math.sin(p*Math.PI);
+  }else{                                         // E 清醒（含一次轻眨）
+    const p=seg(t,2350,2900); zzz=0; label='清醒 ✓';
+    open=1;
+    const bt=seg(t,2520,2660); if(bt>0&&bt<1) open=1-Math.sin(bt*Math.PI)*0.86;
+  }
+  return {open,w,dx,dy,faceScale,zzz,stretch,excl:0,exclScale:1,label,deep:false,bubbleR:-1,popT:-1};
+}
+
+function frameStartle(t, ms){
+  let open=0, w=EYE_W, dx=0, dy=0, faceScale=1, excl=0, exclScale=1, label='熟睡 · zzZ', deep=true;
+  let bubbleR=-1, popT=-1;
+  dy += breathe(ms, 3.4, 3600);                  // 熟睡：更慢更大的呼吸
+  if(t<650){                                      // A 熟睡（沉）：鼻涕泡随呼吸吹大
+    open=0; dy+=6; label='熟睡 · zzZ';
+    const bp=(ms/4200)%1;
+    bubbleR = bp<0.9 ? lerp(4,22,bp/0.9) : -1;
+  }else if(t<800){                                // B 弹眼 +「!」+ 泡破掉
+    const p=seg(t,650,800); label='! 惊醒';
+    open=eoBack(p)*1.15; w=lerp(EYE_W,EYE_W+5,p);
+    excl=Math.min(1,p*2); exclScale=eoBack(Math.min(1,p*1.3))*1.1;
+    popT=seg(t,650,790);                          // 鼻涕泡被惊破
+    dy+=lerp(6,-4,p);
+  }else if(t<1250){                               // C 一哆嗦
+    const p=seg(t,800,1250); label='! 惊醒';
+    open=lerp(1.15,1.05,p); w=EYE_W+5;
+    dx=Math.sin(p*Math.PI*2*3)*5*(1-p);           // 抖动衰减
+    excl=1-seg(t,1080,1250); exclScale=1.1;
+    dy+=-4;
+  }else if(t<1850){                               // D 回神
+    const p=seg(t,1250,1850); label='回神…';
+    open=lerp(1.05,1,p); w=lerp(EYE_W+5,EYE_W,p);
+    const bt=seg(t,1450,1600); if(bt>0&&bt<1) open=1-Math.sin(bt*Math.PI)*0.9; // 定神一眨
+    dy+=lerp(-4,0,p);
+  }else{                                          // E 清醒
+    label='清醒 ✓'; open=1; w=EYE_W;
+  }
+  return {open,w,dx,dy,faceScale,zzz:0,stretch:0,excl,exclScale,label,deep,bubbleR,popT};
+}
+
+function render(fr, ms){
+  g.fillStyle=ORANGE; g.fillRect(0,0,W,H);
+  g.save();
+  g.translate(120,ECY); g.scale(fr.faceScale,fr.faceScale); g.translate(-120,-ECY);
+  g.translate(fr.dx, fr.dy);
+  drawEye(LCX, ECY, fr.open, fr.w);
+  drawEye(RCX, ECY, fr.open, fr.w);
+  g.restore();
+  stretchMarks(fr.stretch);
+  if(fr.bubbleR>0) drawBubble(120+fr.dx, 142+fr.dy, fr.bubbleR);
+  if(fr.popT>=0)   drawPop(120+fr.dx, 138+fr.dy, fr.popT);
+  if(fr.excl>0) drawExcl(120, 26, fr.exclScale, fr.excl);
+  if(fr.zzz>0){                                    // Zzz：三个由小到大、左下→右上
+    const ph=(ms/1400)%1; const n=1+Math.floor(((ms/1400)%3));
+    for(let i=0;i<n;i++){
+      const sz=12+i*8; const x=92+i*16; const y=34-i*12 - (fr.deep?0:0);
+      drawZ(x, y, sz, fr.zzz*clamp(1.1-Math.abs(i-(n-1))*0.05,0.4,1));
+    }
+  }
+}
+
+// ── 播放循环 ──
+let mode='gentle', playing=false, startMs=0, pausedT=0, scrubbing=false;
+let speed=1, loop=false;
+
+function play(m){
+  mode=m; playing=true; scrubbing=false; pausedT=0; startMs=performance.now();
+  document.getElementById('b-gentle').classList.toggle('active', m==='gentle');
+  document.getElementById('b-startle').classList.toggle('active', m==='startle');
+}
+function replay(){ play(mode); }
+function showRest(){ playing=false; pausedT=0; scrubbing=false;
+  document.getElementById('scrub').value=0; }
+
+document.getElementById('speed').oninput=e=>{ speed=+e.target.value;
+  document.getElementById('speedV').textContent=speed.toFixed(2).replace(/0$/,'')+'×'; };
+document.getElementById('loop').onchange=e=>loop=e.target.checked;
+document.getElementById('scrub').oninput=e=>{
+  scrubbing=true; playing=false;
+  pausedT=(+e.target.value/1000)*DUR[mode];
+};
+document.getElementById('scrub').onchange=()=>{ scrubbing=false; };
+
+function tick(now){
+  const dur=DUR[mode];
+  let t;
+  if(playing){
+    t=(now-startMs)*speed;
+    if(t>=dur){
+      if(loop){ startMs=now; t=0; }
+      else { t=dur; playing=false; pausedT=dur; }
+    }
+    document.getElementById('scrub').value=Math.round(t/dur*1000);
+  }else{
+    t=scrubbing?pausedT:(pausedT||0);
+    if(!scrubbing && pausedT===0) t=0;   // 静止：显示睡姿首帧
+  }
+  const fr=(mode==='gentle'?frameGentle:frameStartle)(t, now);
+  render(fr, now);
+  document.getElementById('phase').textContent=fr.label;
+  document.getElementById('fill').style.width=(t/dur*100)+'%';
+  document.getElementById('scrubV').textContent=Math.round(t/dur*100)+'%';
+  document.getElementById('led').style.background = (fr.label.includes('清醒'))?'#54d680':'#2b2e34';
+  requestAnimationFrame(tick);
+}
+play('gentle');           // 默认演示温柔唤醒一次
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

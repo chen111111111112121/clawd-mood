@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mochi 入睡过程 · 动态预览</title>
+<style>
+  :root{ --orange:#DA1100; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#15171c;color:#e8e6e3;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;padding:26px 16px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:19px;font-weight:650;margin:0 0 4px}
+  .sub{color:#8b8985;font-size:12.5px;margin-bottom:22px;text-align:center;max-width:560px}
+  .stage{display:flex;gap:36px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  .device{position:relative;padding:18px;border-radius:34px;background:linear-gradient(160deg,#3a3d44,#212329 60%,#16181d);
+          box-shadow:0 18px 50px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.08)}
+  .screen-wrap{position:relative;width:300px;height:300px;border-radius:14px;overflow:hidden;background:#000;box-shadow:0 0 0 6px #0c0d10}
+  canvas{display:block;width:300px;height:300px}
+  .phase{position:absolute;left:0;right:0;bottom:10px;text-align:center;font-size:12px;letter-spacing:2px;
+         color:rgba(255,255,255,.8);text-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none;font-weight:600}
+  .panel{width:300px}
+  .card{background:#1d2026;border:1px solid #2a2e36;border-radius:14px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:1.5px;color:#7d7b78;margin:0 0 12px;font-weight:700}
+  .row{display:flex;align-items:center;gap:10px;margin:10px 0}
+  .row label{font-size:12px;color:#9a9894;width:44px}
+  input[type=range]{flex:1;accent-color:var(--orange)}
+  .val{font-variant-numeric:tabular-nums;color:#c9c6c2;font-size:12px;width:46px;text-align:right}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{flex:1;min-width:46px;border:1px solid #33383f;background:#23272e;color:#cfccc8;border-radius:8px;padding:7px 4px;cursor:pointer;font-size:12px;font-weight:600}
+  .seg button.on{border-color:var(--orange);background:#2a1f1e;color:#fff}
+  .ctrls{display:flex;gap:8px;margin-top:6px}
+  .ctrls button{flex:1;border:1px solid #33383f;background:#23272e;color:#cfccc8;border-radius:9px;padding:9px;cursor:pointer;font-size:12.5px;font-weight:600}
+  .ctrls button:hover{background:#2b3038}
+  .toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#bdbab6;cursor:pointer;margin-top:10px}
+  .toggle input{accent-color:var(--orange)}
+  .timeline{height:5px;background:#2a2e36;border-radius:3px;margin-top:14px;overflow:hidden}
+  .timeline .fill{height:100%;width:0;background:var(--orange)}
+  .legend{font-size:11.5px;color:#75736f;line-height:1.7;margin-top:6px}
+  .legend b{color:#a8a5a1;font-weight:600}
+</style>
+</head>
+<body>
+  <h1>Mochi · 入睡过程（自然版）</h1>
+  <div class="sub">清醒 → 犯困(眼皮变沉·慢眨) → 打盹点头(差点惊醒) → 合眼(Zzz) → 熟睡(鼻涕泡)。可调速、切帧率对比流畅度。</div>
+
+  <div class="stage">
+    <div class="device">
+      <div class="screen-wrap">
+        <canvas id="cv" width="240" height="240"></canvas>
+        <div class="phase" id="phase">清醒</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <h2>帧率对比（你的疑问点）</h2>
+        <div class="seg" id="fps">
+          <button data-f="15">15</button>
+          <button data-f="30" class="on">30</button>
+          <button data-f="45">45</button>
+          <button data-f="60">60</button>
+        </div>
+        <div class="legend" style="margin-top:10px">设备当前 ≈ <b>30fps</b>(RIG_TICK_MS=33)。切到 45/60 看弹簧运动是否更顺滑。</div>
+      </div>
+
+      <div class="card">
+        <h2>播放控制</h2>
+        <div class="row">
+          <label>速度</label>
+          <input type="range" id="speed" min="0.25" max="2" step="0.05" value="1">
+          <span class="val" id="speedV">1.0×</span>
+        </div>
+        <div class="row">
+          <label>逐帧</label>
+          <input type="range" id="scrub" min="0" max="1000" step="1" value="0">
+          <span class="val" id="scrubV">0%</span>
+        </div>
+        <label class="toggle"><input type="checkbox" id="loop" checked> 循环播放</label>
+        <div class="ctrls"><button onclick="replay()">↻ 重播</button></div>
+        <div class="timeline"><div class="fill" id="fill"></div></div>
+      </div>
+
+      <div class="legend">
+        关键"小动作"：<br>
+        <b>慢眨</b> 越往后闭得越久 · <b>点头</b> 头一沉又猛地抬起(强睡意) · <b>长合眼</b> 最后一次缓缓闭上 · <b>鼻涕泡</b> 熟睡随呼吸
+      </div>
+    </div>
+  </div>
+
+<script>
+const cv=document.getElementById('cv'), g=cv.getContext('2d');
+const ORANGE='#DA1100', BLACK='#000', WHITE='#fff';
+const EYE_W=30, EYE_H=60, LCX=45, RCX=195, ECY=80;
+
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const seg=(t,a,b)=>clamp((t-a)/(b-a),0,1);
+const eio=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
+const eo=t=>1-Math.pow(1-t,3);
+
+function eyeRect(cx,cy,w,visH){
+  visH=Math.max(visH,4);
+  const x=cx-w/2,y=cy-visH/2,r=Math.min(w/2,visH/2,13);
+  g.fillStyle=BLACK;g.beginPath();
+  g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+visH,r);g.arcTo(x+w,y+visH,x,y+visH,r);
+  g.arcTo(x,y+visH,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();g.fill();
+}
+function eyeClosed(cx,cy,w,depth){
+  g.strokeStyle=BLACK;g.lineWidth=7;g.lineCap='round';g.beginPath();
+  g.moveTo(cx-w/2,cy-depth*0.3);g.quadraticCurveTo(cx,cy+depth,cx+w/2,cy-depth*0.3);g.stroke();
+}
+// open: 1=全开 0=闭。闭眼时眼皮从上压下,底部基本不动
+function drawEye(cx,cy,open){
+  if(open<=0.12){ eyeClosed(cx,cy,EYE_W*0.94,lerp(2,7,open/0.12)); }
+  else{
+    const visH=EYE_H*open;
+    const bottom=cy+EYE_H/2;          // 底缘固定,眼皮自上而下
+    eyeRect(cx,bottom-visH/2,EYE_W,visH);
+  }
+}
+function drawZ(x,y,size,alpha){g.save();g.globalAlpha=alpha;g.fillStyle=WHITE;g.font=`700 ${size}px "Segoe UI",sans-serif`;g.fillText('z',x,y);g.restore();}
+function drawBubble(cx,cy,r){g.strokeStyle=WHITE;g.lineWidth=2.2;g.fillStyle='rgba(255,255,255,.22)';
+  g.beginPath();g.arc(cx,cy,r,0,7);g.fill();g.beginPath();g.arc(cx,cy,r,0,7);g.stroke();
+  g.fillStyle='rgba(255,255,255,.9)';g.beginPath();g.arc(cx-r*0.35,cy-r*0.35,Math.max(1.4,r*0.16),0,7);g.fill();}
+function breathe(ms,amp,per){return Math.sin(ms/per*Math.PI*2)*amp;}
+
+const YAWN_DUR=1800;
+const YAWNS=[0,4200,8400];   // 多次打哈欠,穿插在下沉过程,逐渐犯困
+const CLOSE_T=16500, DEEP_T=18000, DUR=20000;
+function yawnAt(t){          // 当前哈欠相位 m(0..1);不在窗口内为 0
+  for(const Y of YAWNS) if(t>=Y && t<Y+YAWN_DUR) return Math.sin((t-Y)/YAWN_DUR*Math.PI);
+  return 0;
+}
+function drawMouth(m){       // O 形嘴(黑色圆角矩形,随张合;同设备 IDLE_YAWN)
+  if(m<=0)return;
+  const mw=10+30*m, mh=8+34*m, x=120-mw/2, y=150-mh/2, r=Math.min(mw,mh)/2;
+  g.fillStyle=BLACK;g.beginPath();g.moveTo(x+r,y);
+  g.arcTo(x+mw,y,x+mw,y+mh,r);g.arcTo(x+mw,y+mh,x,y+mh,r);
+  g.arcTo(x,y+mh,x,y,r);g.arcTo(x,y,x+mw,y,r);g.closePath();g.fill();
+}
+
+// 基线睁开度(单调下沉,贯穿多次哈欠)
+function baseOpen(t){
+  if(t<10000) return lerp(1.0,0.42,eio(seg(t,0,10000)));   // 边打哈欠边渐沉
+  if(t<13000) return 0.42;                                 // 点头区维持
+  if(t<15000) return lerp(0.42,0.12,eio(seg(t,13000,15000)));
+  if(t<CLOSE_T) return lerp(0.12,0.0,eio(seg(t,15000,CLOSE_T)));// 合眼
+  return 0.0;
+}
+// 慢眨:越往后闭得越久(返回 0..1 的闭合量)
+function blinkDip(t){
+  const blinks=[[3000,500],[7000,560],[14200,760]];
+  for(const [s,d] of blinks) if(t>=s && t<s+d) return Math.sin(seg(t,s,s+d)*Math.PI);
+  return 0;
+}
+function frame(t){
+  let open=baseOpen(t);
+  let oy=breathe(t,1.6,2600);
+  let mouth=0, zzz=0, br=-1, label='犯困…';
+  // 多次打哈欠(眯眼 + O 嘴 + 头微仰)
+  const ym=yawnAt(t);
+  if(ym>0){ open=Math.min(open,1-0.72*ym); mouth=ym; oy+=-3*ym; label='打哈欠～'; }
+  // 慢眨
+  open*=(1-blinkDip(t));
+  // 打盹点头:10200-13000 头沉→猛抬→再沉
+  if(t>=10000&&t<13000){
+    label='打盹…点头';
+    if(t<11300){ oy+=lerp(0,16,eio(seg(t,10200,11300))); open=Math.min(open,lerp(0.4,0.22,seg(t,10200,11300))); }
+    else if(t<11700){ const p=seg(t,11300,11700); oy+=lerp(16,-2,eo(p)); open=Math.max(open,lerp(0.22,0.78,eo(p))); }
+    else { const p=seg(t,11700,13000); oy+=lerp(-2,10,p); open=Math.min(open,lerp(0.78,0.4,eo(p))); }
+  }
+  if(t>=13000&&t<CLOSE_T) label='缓缓合眼';
+  if(t>=CLOSE_T){ label='睡着 · zZ'; oy+=lerp(0,6,seg(t,CLOSE_T,DEEP_T)); zzz=seg(t,CLOSE_T,CLOSE_T+1200); }
+  if(t>=DEEP_T){ label='熟睡 · 鼻涕泡'; oy=breathe(t,3.2,3600)+10;
+    const bp=t%4200; br=bp<3600?4+18*bp/3600:-1; }
+  return {open,oy,zzz,br,label,mouth};
+}
+
+function render(fr,ms){
+  g.fillStyle=ORANGE;g.fillRect(0,0,240,240);
+  drawEye(LCX,ECY+fr.oy,fr.open);
+  drawEye(RCX,ECY+fr.oy,fr.open);
+  if(fr.mouth>0) drawMouth(fr.mouth);
+  if(fr.zzz>0){ const n=1+Math.floor((ms/1400)%3);
+    for(let i=0;i<n;i++) drawZ(92+i*16,34-i*12,12+i*8,fr.zzz*clamp(1-i*0.15,.4,1)); }
+  if(fr.br>0) drawBubble(120,150,fr.br);
+}
+
+let speed=1, fpsCap=30, playing=true, startReal=0, baseAcc=0, loopOn=true, scrubbing=false, scrubT=0;
+let lastReal=0, displayT=0;
+
+document.getElementById('speed').oninput=e=>{speed=+e.target.value;document.getElementById('speedV').textContent=speed.toFixed(2).replace(/0$/,'')+'×';};
+document.getElementById('loop').onchange=e=>loopOn=e.target.checked;
+document.querySelectorAll('#fps button').forEach(b=>b.onclick=()=>{
+  fpsCap=+b.dataset.f;document.querySelectorAll('#fps button').forEach(x=>x.classList.toggle('on',x===b));});
+document.getElementById('scrub').oninput=e=>{scrubbing=true;playing=false;scrubT=(+e.target.value/1000)*DUR;};
+document.getElementById('scrub').onchange=()=>{scrubbing=false;playing=true;baseAcc=scrubT;startReal=0;};
+function replay(){baseAcc=0;startReal=0;playing=true;}
+
+function tick(now){
+  if(!startReal)startReal=now;
+  let t;
+  if(playing){ t=baseAcc+(now-startReal)*speed;
+    if(t>=DUR){ if(loopOn){baseAcc=0;startReal=now;t=0;} else {t=DUR;playing=false;} }
+    document.getElementById('scrub').value=Math.round(t/DUR*1000);
+  } else t=scrubbing?scrubT:displayT;
+  // 帧率模拟:把动画时间量化到所选 fps
+  const frameMs=1000/fpsCap;
+  displayT=Math.floor(t/frameMs)*frameMs;
+  const fr=frame(displayT);
+  render(fr,displayT);
+  document.getElementById('phase').textContent=fr.label;
+  document.getElementById('fill').style.width=(t/DUR*100)+'%';
+  document.getElementById('scrubV').textContent=Math.round(t/DUR*100)+'%';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

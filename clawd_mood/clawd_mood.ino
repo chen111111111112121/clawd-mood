@@ -120,6 +120,28 @@ const uint8_t MOOD_COZY_POOL[]     = { IDLE_HEART, IDLE_LOVE, IDLE_GIGGLE, IDLE_
 #define MOOD_TIRED_ENERGY      30      // energy≤此值→疲惫
 #define MOOD_FOCUSED_WINDOW_MS 180000UL  // 最近3分钟有活动→专注
 
+// ── 睡眠节律:困意累积(idle 涨/活动清零)到阈值后触发入睡脚本 ──────
+#define SLEEPINESS_PER_MIN     10.0f    // 基准困意速率(精力中等);测试可临时调 60 加速
+#define SLEEPINESS_EF_HI       0.6f    // energy=100 时速率系数(精神,扛困)
+#define SLEEPINESS_EF_LO       1.6f    // energy=0   时速率系数(累瘫,秒睡)
+#define SLEEP_DROWSY_AT        25.0f   // 困意≥:触发入睡脚本(先打哈欠再入睡) ~5min
+#define ENERGY_SLEEP_PER_MIN   18.0f   // 睡眠期精力快速回血(睡越久越精神)
+
+// 入睡脚本时间线(从触发起算的毫秒;自然曲线见 web/mockups/falling-asleep.html)
+#define SLP_YAWN_DUR  1800UL                    // 单次哈欠时长(多次穿插,见 SLEEP_YAWNS)
+#define SLP_CLOSE_AT  16500UL                   // 合眼完成→睡着(Zzz)
+#define SLP_DEEP_AT   18000UL                   // →熟睡(鼻涕泡)
+
+// ── 清醒 idle 轮播:以普通表情为中心 ─────────────────────────────
+#define NORMAL_HOLD_MS         10000UL // 普通表情每次至少持续
+#define OTHER_LOOP_COUNT       3       // 其他表情循环次数
+
+// 睡眠阶段(活在 MON_IDLE 内部)
+#define SLEEP_AWAKE   0
+#define SLEEP_DROWSY  1
+#define SLEEP_ASLEEP  2
+#define SLEEP_DEEP    3
+
 // ── Working sub-acts (semantic working states) ───────────────
 #define ACT_WORK  0
 #define ACT_READ  1
@@ -152,6 +174,16 @@ float    moodEnergy    = 80.0f;     // 0..100
 float    moodJoy       = 0.0f;      // 0..100
 unsigned long lastMoodTick  = 0;    // 上次情绪更新
 unsigned long lastActiveMs  = 0;    // 上次 thinking/working 的时刻(判"最近有活动")
+float    moodSleepiness = 0.0f;     // 0..100,idle 累积,任何活动状态清零
+uint8_t  sleepStage     = SLEEP_AWAKE;
+unsigned long sleepScriptMs = 0;    // 入睡脚本锚点:0=清醒 >0=入睡中/睡眠中
+bool     sleepClosed   = false;     // 是否已合眼(切到闭眼弧)
+bool     sleepInited   = false;     // 入睡脚本首帧是否已初始化
+uint8_t  wakeFlourish   = 0;        // 唤醒花絮:0=无 1=温柔 2=惊醒
+unsigned long wakeFlourishMs = 0;   // 花絮起始时刻
+bool     idleShowingOther = false;  // 清醒轮播子状态:false=普通 hub,true=穿插其他
+unsigned long idlePhaseMs = 0;      // 当前段(普通/其他)起始时刻
+uint8_t  idleOtherLoops   = 0;      // 当前其他表情已循环次数
 
 #define BOOT_CONFIRM_MS 3000   // 已连上家庭 WiFi:显示 IP 确认 3s 后进表情
 unsigned long bootScreenDeadline = 0;   // >0 = 信息屏确认倒计时中(仅"已连上"用);0 = 常驻
@@ -179,7 +211,7 @@ uint8_t  animSpeed    = 2;   // 1=slow 2=normal(default) 3=fast
 uint16_t animBgColor  = 0;   // background for eye/logo animations
 
 // ── Eye rig: lively expression engine ────────────────────────
-enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART, STYLE_STAR };
+enum EyeStyle : uint8_t { STYLE_RECT, STYLE_CHEVRON, STYLE_ARC, STYLE_HEART, STYLE_STAR, STYLE_SLEEP };
 
 struct EyePose {
   EyeStyle style;
@@ -257,6 +289,10 @@ const EyePose POSE_SHY       = {STYLE_RECT, 0, 6, 24, 42, 30};
 const EyePose POSE_DIZZY     = {STYLE_RECT, 0, 0, 26, 40, 60};
 const EyePose POSE_MUSIC     = {STYLE_ARC,  0, 8, 30, 30, 0};
 const EyePose POSE_YAWN      = {STYLE_RECT, 0, 0, EYE_W, 56, 0};
+// ── 睡眠姿态:DOZE/DEEPSLEEP=闭眼弧(⌣);SHUT=唤醒起手的闭眼矩形 ──
+const EyePose POSE_DOZE      = {STYLE_SLEEP, 0, 10, EYE_W, 10, 0};        // 睡着:闭眼弧,略下沉
+const EyePose POSE_DEEPSLEEP = {STYLE_SLEEP, 0, 16, EYE_W, 10, 0};        // 熟睡:闭眼弧,更下沉
+const EyePose POSE_SHUT      = {STYLE_RECT,  0,  6, EYE_W, EYE_H, 235};   // 唤醒起手:闭眼矩形(同样式平滑睁开)
 const EyePose POSE_LOVE      = {STYLE_HEART, 0, 0, 6, 6, 0};
 const EyePose POSE_GIGGLE    = {STYLE_ARC,  0, 8, 30, 30, 0};
 
@@ -727,6 +763,17 @@ void rigTick(unsigned long now) {
 void drawRigEye(int16_t cx, int16_t cy, int16_t w, int16_t h, int16_t lid,
                 bool rightFacing, uint16_t col, EyeRect &out) {
   switch (rig.drawnStyle) {
+    case STYLE_SLEEP: {
+      // 闭眼:向下弯的弧 ⌣（与 happy 的 ∧ 镜像,读作安睡）
+      const int16_t hw = w / 2, dip = 7;
+      for (uint8_t t = 0; t < 5; t++) {
+        tft.drawLine(cx - hw, cy - dip / 2 + t, cx,      cy + dip + t, col);
+        tft.drawLine(cx,      cy + dip + t,     cx + hw, cy - dip / 2 + t, col);
+      }
+      out = {(int16_t)(cx - hw - 2), (int16_t)(cy - dip / 2 - 2),
+             (int16_t)(w + 4), (int16_t)(dip + 12), true};
+      break;
+    }
     case STYLE_CHEVRON: {
       const int16_t arm = ((h / 2) * (240 - lid)) / 240;
       if (arm <= 3) {
@@ -1540,6 +1587,28 @@ uint32_t moodSwitchMs(uint8_t mood) {
   }
 }
 
+// 每个"其他表情"的一次动画循环约多少毫秒(用于"循环 N 次")
+uint32_t otherCycleMs(uint8_t expr) {
+  switch (expr) {
+    case IDLE_HEART: case IDLE_LOVE:               return 900;   // 心跳脉冲
+    case IDLE_SPARKLE: case IDLE_HAPPY:            return 1200;  // 闪光/星星
+    case IDLE_WINK: case IDLE_GIGGLE:              return 1400;
+    case IDLE_MUSIC: case IDLE_DIZZY:              return 1600;  // 摇摆/转圈
+    case IDLE_YAWN: case IDLE_SLEEPY:              return 1800;  // 哈欠较慢
+    default:                                       return 1300;  // curious/surprised/shy
+  }
+}
+
+// 由心情挑一个"非普通"且有精神的表情。困倦/哈欠不在清醒轮播里(归入睡流程)。
+uint8_t pickAwakeExpr() {
+  static const uint8_t CHEER[] = { IDLE_HAPPY, IDLE_SPARKLE, IDLE_GIGGLE, IDLE_MUSIC, IDLE_HEART, IDLE_LOVE };
+  static const uint8_t CALM[]  = { IDLE_CURIOUS, IDLE_WINK, IDLE_SURPRISED, IDLE_SHY, IDLE_MUSIC, IDLE_DIZZY };
+  const uint8_t* pool; uint8_t n;
+  if (moodJoy >= MOOD_CHEERFUL_JOY && moodEnergy > MOOD_TIRED_ENERGY) { pool = CHEER; n = sizeof(CHEER); }
+  else                                                               { pool = CALM;  n = sizeof(CALM); }
+  return pool[random(n)];
+}
+
 void saveMoodNow() {
   prefs.putUChar("mEnergy", (uint8_t)moodEnergy);
   prefs.putUChar("mJoy",    (uint8_t)moodJoy);
@@ -1547,6 +1616,11 @@ void saveMoodNow() {
 void loadMood() {
   moodEnergy = (float)prefs.getUChar("mEnergy", 80);
   moodJoy    = (float)prefs.getUChar("mJoy", 0);
+  moodSleepiness = 0.0f;          // 开机醒着
+  sleepStage     = SLEEP_AWAKE;
+  sleepScriptMs  = 0;
+  sleepClosed    = false;
+  sleepInited    = false;
 }
 // 轻量持久化:最多每 5 分钟、且值有变化才写 Flash
 void maybePersistMood(unsigned long now) {
@@ -1567,10 +1641,26 @@ void updateMood(unsigned long now) {
   lastMoodTick = now;
 
   const bool active = (monitorState == MON_THINKING || monitorState == MON_WORKING);
-  if (active) { moodEnergy -= ENERGY_DRAIN_PER_MIN * dtMin; lastActiveMs = now; }
-  else        { moodEnergy += ENERGY_RECOVER_PER_MIN * dtMin; }
+  const bool sleeping = (monitorState == MON_IDLE && sleepStage >= SLEEP_ASLEEP);
+  if (active)        { moodEnergy -= ENERGY_DRAIN_PER_MIN  * dtMin; lastActiveMs = now; }
+  else if (sleeping) { moodEnergy += ENERGY_SLEEP_PER_MIN  * dtMin; }   // 睡眠快速回血
+  else               { moodEnergy += ENERGY_RECOVER_PER_MIN * dtMin; }
   moodEnergy = constrain(moodEnergy, 0.0f, 100.0f);
   moodJoy = constrain(moodJoy - JOY_DECAY_PER_MIN * dtMin, 0.0f, 100.0f);
+
+  // 困意:仅 idle 累积,精力越低越快;非 idle 由 applyMonitorState 清零。
+  // 累到 DROWSY_AT 即触发入睡脚本(tickSleep 接管),阶段由脚本进度决定。
+  if (monitorState == MON_IDLE && !busy) {
+    const float ef = SLEEPINESS_EF_HI + (SLEEPINESS_EF_LO - SLEEPINESS_EF_HI) * (1.0f - moodEnergy / 100.0f);
+    moodSleepiness = constrain(moodSleepiness + SLEEPINESS_PER_MIN * ef * dtMin, 0.0f, 100.0f);
+    if (sleepScriptMs == 0 && moodSleepiness >= SLEEP_DROWSY_AT) {
+      sleepScriptMs = now;             // 触发入睡
+      sleepStage    = SLEEP_DROWSY;
+      sleepInited   = false;
+      sleepClosed   = false;
+      currentIdleExpr = IDLE_NORMAL;   // 让 rigBehaviorTick/覆盖层不干扰
+    }
+  }
 
   uint8_t m;
   if (moodJoy >= MOOD_CHEERFUL_JOY)               m = MOOD_CHEERFUL;
@@ -1591,6 +1681,191 @@ void updateMood(unsigned long now) {
 void resetIdleRotation() {
   lastIdleSwitch = millis();
   nextIdleSwitchMs = moodSwitchMs(currentMood);
+  idleShowingOther = false; idleOtherLoops = 0; idlePhaseMs = millis();   // 普通为中心:回到 hub
+}
+
+// 入睡曲线数学小工具
+static inline float sl_clamp(float v, float a, float b){ return v < a ? a : (v > b ? b : v); }
+static inline float sl_seg(float t, float a, float b){ return sl_clamp((t - a) / (b - a), 0.f, 1.f); }
+static inline float sl_eio(float t){ return t < 0.5f ? 2.f*t*t : 1.f - powf(-2.f*t+2.f, 2.f)/2.f; }
+static inline float sl_eo(float t){ return 1.f - powf(1.f - t, 3.f); }
+static inline float sl_lerp(float a, float b, float t){ return a + (b - a) * t; }
+
+// 多次打哈欠的窗口起点(脚本时间 ms);穿插在下沉过程中,逐渐犯困。返回当前哈欠相位 0..1(不在窗口=0)
+const uint16_t SLEEP_YAWNS[3] = {0, 4200, 8400};
+static inline float sleepYawnPhase(unsigned long se){
+  for (uint8_t i = 0; i < 3; i++)
+    if (se >= SLEEP_YAWNS[i] && se < SLEEP_YAWNS[i] + SLP_YAWN_DUR)
+      return sinf((float)(se - SLEEP_YAWNS[i]) / (float)SLP_YAWN_DUR * PI);
+  return 0.f;
+}
+
+// 入睡脚本:idle 累出睡意后,从清醒平滑滑入熟睡(自然曲线,逐帧驱动 rig.pose)。
+// se=脚本已进行毫秒;为对齐 mockup 时间轴用 mt=se+3000。曲线见 falling-asleep.html。
+void tickSleep(unsigned long now) {
+  if (currentView != VIEW_MONITOR || monitorState != MON_IDLE || busy) return;
+  if (sleepScriptMs == 0) return;            // 清醒:交给轮播,不干预
+  const unsigned long se = now - sleepScriptMs;
+
+  if (se < SLP_CLOSE_AT) {                    // 入睡曲线:RECT 眼,多次哈欠 + 渐沉 + 慢眨 + 点头
+    if (!sleepInited) { rigSnapPose(POSE_NORMAL, 0); sleepInited = true; }  // 从睁眼起,清屏防残留
+    const float t = (float)se;
+    float open;                                                    // 基线下沉(贯穿多次哈欠)
+    if      (t < 10000) open = sl_lerp(1.00f, 0.42f, sl_eio(sl_seg(t, 0, 10000)));
+    else if (t < 13000) open = 0.42f;
+    else if (t < 15000) open = sl_lerp(0.42f, 0.12f, sl_eio(sl_seg(t, 13000, 15000)));
+    else                open = sl_lerp(0.12f, 0.00f, sl_eio(sl_seg(t, 15000, 16500)));
+    float oy = sinf(t / 2600.0f * 2.0f * PI) * 1.6f;              // 呼吸
+    const float ym = sleepYawnPhase(se);                          // 多次打哈欠:眯眼 + 头微仰
+    if (ym > 0) { open = fminf(open, 1.0f - 0.72f * ym); oy += -3.0f * ym; }
+    const int16_t bw[3][2] = {{3000,500},{7000,560},{14200,760}}; // 慢眨:越往后闭得越久
+    for (uint8_t i = 0; i < 3; i++)
+      if (t >= bw[i][0] && t < bw[i][0] + bw[i][1])
+        open *= 1.0f - sinf(sl_seg(t, bw[i][0], bw[i][0] + bw[i][1]) * PI);
+    if (t >= 10000 && t < 13000) {                                // 打盹点头:沉→猛抬惊醒→再沉
+      if (t < 11300)      { oy += sl_lerp(0, 16, sl_eio(sl_seg(t,10200,11300))); open = fminf(open, sl_lerp(0.40f,0.22f, sl_seg(t,10200,11300))); }
+      else if (t < 11700) { float p = sl_seg(t,11300,11700); oy += sl_lerp(16,-2, sl_eo(p)); open = fmaxf(open, sl_lerp(0.22f,0.78f, sl_eo(p))); }
+      else                { float p = sl_seg(t,11700,13000); oy += sl_lerp(-2,10, p);        open = fminf(open, sl_lerp(0.78f,0.40f, sl_eo(p))); }
+    }
+    const int16_t lid = (int16_t)(240.0f * (1.0f - sl_clamp(open, 0.f, 1.f)));
+    const int16_t oyi = (int16_t)oy;
+    rig.pose.style = STYLE_RECT; rig.pose.w = EYE_W; rig.pose.h = EYE_H; rig.pose.ox = 0;
+    rig.pose.lid = lid; rig.pose.oy = oyi; rig.flags = 0; rig.drawnStyle = STYLE_RECT;
+    springSnap(rig.ox, 0);                       springSnap(rig.oy, (int32_t)oyi << 8);
+    springSnap(rig.w, (int32_t)EYE_W << 8);      springSnap(rig.h, (int32_t)EYE_H << 8);
+    springSnap(rig.lid, (int32_t)lid << 8);
+    sleepClosed = false;
+  } else {                                    // 已合眼:睡着→熟睡(闭眼弧 + 呼吸)
+    if (!sleepClosed) { sleepClosed = true; sleepStage = SLEEP_ASLEEP; rigSnapPose(POSE_DOZE, RIG_BREATH2); }
+    if (se >= SLP_DEEP_AT && sleepStage != SLEEP_DEEP) { sleepStage = SLEEP_DEEP; rigSetPose(POSE_DEEPSLEEP, RIG_BREATH2); }
+  }
+}
+
+// 鼻涕泡:白圈 + 高光(熟睡)
+void drawSleepBubble(int16_t cx, int16_t cy, int16_t r) {
+  tft.drawCircle(cx, cy, r, C_WHITE);
+  tft.fillCircle(cx - r / 3, cy - r / 3, 2, C_WHITE);
+}
+
+// 入睡打哈欠的 O 形嘴(黑色圆角矩形随 sin 张合;复用 IDLE_YAWN 画法,在 drawRig 之后画)
+void tickYawnMouth(unsigned long now) {
+  static bool    shown = false;
+  static int16_t pmw   = -1;
+  const int16_t EX = 98, EY = 126, EW = 44, EH = 48;            // 擦除区(容纳最大嘴)
+  const float m = (currentView == VIEW_MONITOR && monitorState == MON_IDLE && !busy
+                   && sleepScriptMs != 0 && rig.trans == 0)
+                  ? sleepYawnPhase(now - sleepScriptMs) : 0.f;   // 多次哈欠窗口
+  if (m <= 0.02f) {
+    if (shown) { tft.fillRect(EX, EY, EW, EH, animBgColor); shown = false; pmw = -1; }
+    return;
+  }
+  const int16_t mw = 10 + (int16_t)(30 * m), mh = 8 + (int16_t)(34 * m);
+  if (mw == pmw && !rigZoneCleared) return;
+  pmw = mw;
+  tft.fillRect(EX, EY, EW, EH, animBgColor);                    // 擦上一帧整块,防残留
+  GFXcanvas16 cv(mw, mh);
+  cv.fillScreen(animBgColor);
+  cv.fillRoundRect(0, 0, mw, mh, (mw < mh ? mw : mh) / 2, C_BLACK);
+  tft.drawRGBBitmap(120 - mw / 2, 150 - mh / 2, cv.getBuffer(), mw, mh);
+  shown = true;
+}
+
+// 离开睡眠:按当时深度选花絮,清零困意并复位入睡脚本
+void triggerWake(unsigned long now) {
+  if (sleepScriptMs != 0) {                                // 正在入睡/睡眠中才有花絮
+    wakeFlourish   = (sleepStage == SLEEP_DEEP) ? 2 : 1;   // 熟睡=惊醒,其余=温柔
+    wakeFlourishMs = now;
+    rigSnapPose(POSE_SHUT, RIG_BREATH);   // 闭眼矩形起手:目标态同样式平滑睁开 + 整区清屏抹残留
+  }
+  moodSleepiness = 0.0f;
+  sleepStage     = SLEEP_AWAKE;
+  sleepScriptMs  = 0;
+  sleepClosed    = false;
+  sleepInited    = false;
+}
+
+// 唤醒花絮:叠加在已切好的目标态之上,~600ms 非阻塞。眼睛睁开由 rig 过渡自然完成。
+void tickWakeFlourish(unsigned long now) {
+  if (wakeFlourish == 0) return;
+  const int16_t EXX = 90, EXY = 6, EXW = 60, EXH = 38;     // "!" 区
+  const int16_t BX = 80, BY = 110, BW = 80, BH = 80;       // 泡破区(须容纳半径~36 的飞溅)
+  const unsigned long t = now - wakeFlourishMs;
+  if (t > 600) {
+    tft.fillRect(EXX, EXY, EXW, EXH, animBgColor);
+    tft.fillRect(BX, BY, BW, BH, animBgColor);
+    wakeFlourish = 0;
+    return;
+  }
+  if (wakeFlourish == 2) {                                 // 惊醒:泡破 + "!"
+    tft.fillRect(BX, BY, BW, BH, animBgColor);
+    if (t < 220) {
+      const float pt = t / 220.0f;
+      for (uint8_t i = 0; i < 6; i++) {
+        const float a = i / 6.0f * 6.2832f;
+        const int16_t r0 = 6 + (int16_t)(pt * 16), r1 = 12 + (int16_t)(pt * 24);
+        tft.drawLine(120 + cos(a) * r0, 150 + sin(a) * r0,
+                     120 + cos(a) * r1, 150 + sin(a) * r1, C_WHITE);
+      }
+    }
+    tft.fillRect(EXX, EXY, EXW, EXH, animBgColor);         // "!"
+    tft.setTextColor(C_WHITE); tft.setTextSize(4);
+    tft.setCursor(113, 8); tft.print('!'); tft.setTextSize(1);
+  }
+  // wakeFlourish==1(温柔):不画额外元素,睁眼/伸展由 rig 切到目标态完成
+}
+
+// 睡眠覆盖层:睡着/熟睡的 Zzz;熟睡额外鼻涕泡随呼吸吹大→破。脏区按签名重画,避免闪烁。
+void tickSleepOverlay(unsigned long now) {
+  static int8_t   lastStage = -1;
+  static uint32_t lastSig   = 0xFFFFFFFF;
+  const int16_t ZX = 80, ZY = 2, ZW = 92, ZH = 42;       // Zzz 区
+  const int16_t BX = 94, BY = 124, BW = 52, BH = 52;     // 鼻涕泡区(眼下方)
+  const bool active = (currentView == VIEW_MONITOR && monitorState == MON_IDLE
+                       && sleepStage >= SLEEP_ASLEEP && rig.trans == 0);
+  if (!active) {
+    if (lastStage != -1) {
+      tft.fillRect(ZX, ZY, ZW, ZH, animBgColor);
+      tft.fillRect(BX, BY, BW, BH, animBgColor);
+      lastStage = -1; lastSig = 0xFFFFFFFF;
+    }
+    return;
+  }
+  if ((int8_t)sleepStage != lastStage || rigZoneCleared) {
+    tft.fillRect(ZX, ZY, ZW, ZH, animBgColor);
+    tft.fillRect(BX, BY, BW, BH, animBgColor);
+    lastStage = (int8_t)sleepStage; lastSig = 0xFFFFFFFF;
+  }
+  const uint8_t z = 1 + (uint8_t)((now / 1500) % 3);
+  int16_t br = -1;
+  if (sleepStage == SLEEP_DEEP) {
+    const uint16_t bp = (uint16_t)(now % 4200);
+    br = (bp < 3600) ? (int16_t)(4 + 18UL * bp / 3600) : -1;   // <3.6s 吹大,之后破
+  }
+  const uint32_t sig = (uint32_t)z * 64 + (uint32_t)(br < 0 ? 63 : br);
+  if (sig == lastSig && !rigZoneCleared) return;
+  lastSig = sig;
+
+  tft.fillRect(ZX, ZY, ZW, ZH, animBgColor);                  // Zzz:由小到大向右上
+  tft.setTextColor(C_WHITE);
+  for (uint8_t i = 0; i < z; i++) {
+    tft.setTextSize(i + 1);
+    tft.setCursor(92 + i * 18, 34 - i * 12);
+    tft.print('z');
+  }
+  tft.setTextSize(1);
+
+  if (sleepStage == SLEEP_DEEP) {                             // 鼻涕泡
+    tft.fillRect(BX, BY, BW, BH, animBgColor);
+    if (br > 0) {
+      drawSleepBubble(120, 150, br);
+    } else {                                                  // 破裂飞溅
+      for (uint8_t i = 0; i < 6; i++) {
+        const float a = i / 6.0f * 6.2832f;
+        tft.drawLine(120 + cos(a) * 8, 150 + sin(a) * 8,
+                     120 + cos(a) * 20, 150 + sin(a) * 20, C_WHITE);
+      }
+    }
+  }
 }
 
 void tickMonitorAnimation() {
@@ -1603,9 +1878,13 @@ void tickMonitorAnimation() {
   lastAnimTick = now;
 
   rigBehaviorTick(now);
+  tickSleep(now);        // 入睡脚本驱动 rig.pose(须在 rigTick/drawRig 之前)
   rigTick(now);
   drawRig();
   rigOverlayTick();
+  tickSleepOverlay(now);
+  tickYawnMouth(now);
+  tickWakeFlourish(now);
   tickTicker(now);
 }
 
@@ -1712,21 +1991,35 @@ void checkIdleRotation() {
   if (currentView != VIEW_MONITOR) return;
   if (monitorState != MON_IDLE) return;
   if (busy) return;
-  if (lastIdleSwitch == 0) {
-    resetIdleRotation();
-    return;
-  }
-  if (millis() - lastIdleSwitch < nextIdleSwitchMs) return;
 
-  uint8_t poolSize;                          // 在当前心情的表情子集里随机挑,不与当前重复
-  const uint8_t* pool = moodPool(currentMood, &poolSize);
-  uint8_t ni;
-  do { ni = (uint8_t)random(poolSize); } while (poolSize > 1 && pool[ni] == currentIdleExpr);
-  currentIdleIndex = ni;
-  currentIdleExpr = pool[ni];
-  rigApplyExpression(false);   // 眼睑过渡切表情
-  lastIdleSwitch = millis();
-  nextIdleSwitchMs = moodSwitchMs(currentMood);
+  // 入睡中/睡眠中:由 tickSleep 接管眼睛,不走表情轮播
+  static bool wasAsleep = false;
+  if (sleepScriptMs != 0) { wasAsleep = true; return; }
+  if (wasAsleep) {                          // 刚醒:回普通,重置轮播
+    wasAsleep = false;
+    currentIdleExpr = IDLE_NORMAL;
+    idleShowingOther = false; idlePhaseMs = millis();
+    rigApplyExpression(false);
+  }
+
+  // 清醒:以普通为中心。普通持续 NORMAL_HOLD_MS → 穿插一个加权其他表情(循环 OTHER_LOOP_COUNT 次) → 回普通
+  const unsigned long now = millis();
+  if (idlePhaseMs == 0) { idlePhaseMs = now; currentIdleExpr = IDLE_NORMAL; rigApplyExpression(true); return; }
+
+  if (!idleShowingOther) {                          // 普通 hub
+    if (now - idlePhaseMs < NORMAL_HOLD_MS) return;
+    currentIdleExpr  = pickAwakeExpr();
+    idleShowingOther = true;
+    idleOtherLoops   = 0;
+    idlePhaseMs      = now;
+    rigApplyExpression(false);
+  } else {                                          // 穿插的其他表情:满 N 次循环回普通
+    if (now - idlePhaseMs < otherCycleMs(currentIdleExpr) * (unsigned long)OTHER_LOOP_COUNT) return;
+    currentIdleExpr  = IDLE_NORMAL;
+    idleShowingOther = false;
+    idlePhaseMs      = now;
+    rigApplyExpression(false);
+  }
 }
 
 uint8_t parseAct(const String& a) {
@@ -1769,6 +2062,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   if (s == "done") {
     lastStatusMs = millis();
     statusTimedOut = false;
+    triggerWake(millis());
     moodJoy = constrain(moodJoy + JOY_PER_DONE, 0.0f, 100.0f);   // 完成→喜悦累积(攒够→雀跃)
     currentView = VIEW_MONITOR;
     if (!backlightOn) setBacklight(true);
@@ -1793,6 +2087,10 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
     }
   }
 
+  if (monitorState == MON_THINKING || monitorState == MON_WORKING || monitorState == MON_ALERT) {
+    triggerWake(millis());
+  }
+  // idle / offline 不唤醒、不清零困意(idle 继续累积;offline 暂停)
   lastStatusMs = millis();
   statusTimedOut = false;
 
@@ -1808,8 +2106,10 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
   switch (monitorState) {
     case MON_IDLE:
       if (!backlightOn) setBacklight(true);
-      resetIdleRotation();
-      rigApplyExpression(entering);
+      if (sleepScriptMs == 0) {           // 睡眠中收到 idle:不打断,继续睡(tickSleep 接管)
+        resetIdleRotation();
+        rigApplyExpression(entering);
+      }
       break;
     case MON_THINKING:
     case MON_WORKING:
@@ -1827,6 +2127,7 @@ void applyMonitorState(const String& s, const String& act, const String& info) {
       rigInvalidate();
       tickerVisible = false;
       tickerDrawn[0] = 0;
+      sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;  // 离线:复位入睡
       saveMoodNow();   // 会话结束:持久化当前情绪(重启可恢复)
       break;
   }

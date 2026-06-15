@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mochi 熟睡状态 · 方案对比</title>
+<style>
+  :root{ --orange:#DA1100; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#15171c;color:#e8e6e3;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;padding:28px 16px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:19px;font-weight:650;margin:0 0 4px}
+  .sub{color:#8b8985;font-size:12.5px;margin-bottom:8px;text-align:center;max-width:640px}
+  .ref{color:#6f6d69;font-size:11.5px;margin-bottom:26px}
+  .ref b{color:#a8a5a1}
+  .grid{display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:flex-start}
+  .item{display:flex;flex-direction:column;align-items:center;gap:12px;width:230px}
+  .device{padding:12px;border-radius:26px;background:linear-gradient(160deg,#3a3d44,#212329 60%,#16181d);
+          box-shadow:0 14px 38px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08)}
+  .screen{width:200px;height:200px;border-radius:11px;overflow:hidden;background:#000;box-shadow:0 0 0 5px #0c0d10}
+  canvas{display:block;width:200px;height:200px}
+  .name{font-size:15px;font-weight:650}
+  .name .tag{display:inline-block;font-size:10.5px;font-weight:700;color:var(--orange);
+             border:1px solid var(--orange);border-radius:20px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+  .desc{font-size:12px;color:#8b8985;text-align:center;line-height:1.6;min-height:54px}
+  .ctrls{display:flex;gap:10px;align-items:center;margin-top:18px}
+  .ctrls label{font-size:12px;color:#9a9894}
+  input[type=range]{accent-color:var(--orange);width:160px}
+  .val{font-variant-numeric:tabular-nums;color:#c9c6c2;font-size:12px;width:38px}
+  .cmp{margin-top:8px;font-size:11.5px;color:#6f6d69}
+</style>
+</head>
+<body>
+  <h1>熟睡状态 · 更明显的几种长相</h1>
+  <div class="sub">目标：一眼能跟「浅睡」区分开，看出「睡得很沉」。三个并排实时播放，挑一个（或说混搭）。</div>
+  <div class="ref">参照：<b>浅睡</b> = 闭眼 ⌣ + 轻呼吸 + 普通 Zzz。下面都是在它基础上「加重」。</div>
+
+  <div class="grid">
+    <div class="item">
+      <div class="device"><div class="screen"><canvas id="cA" width="240" height="240"></canvas></div></div>
+      <div class="name">A 鼻涕泡 <span class="tag">推荐</span></div>
+      <div class="desc">闭眼下沉，鼻孔一个白泡随呼吸慢慢吹大→啵地破掉再来。最经典的「睡死了」信号，一眼懂。</div>
+    </div>
+    <div class="item">
+      <div class="device"><div class="screen"><canvas id="cB" width="240" height="240"></canvas></div></div>
+      <div class="name">B 巨型鼾 Z</div>
+      <div class="desc">一个超大的「Z」在头顶脉动浮现（打呼噜的响度感），配中小 z。呼吸幅度更大、更慢。</div>
+    </div>
+    <div class="item">
+      <div class="device"><div class="screen"><canvas id="cC" width="240" height="240"></canvas></div></div>
+      <div class="name">C 鼻涕泡 + 大Z</div>
+      <div class="desc">两者结合：鼻涕泡 + 巨型脉动 Z，最夸张最不会认错，但元素也最多。</div>
+    </div>
+  </div>
+
+  <div class="ctrls">
+    <label>速度</label>
+    <input type="range" id="speed" min="0.25" max="2" step="0.05" value="1">
+    <span class="val" id="speedV">1.0×</span>
+  </div>
+  <div class="cmp">提示：可对照打开 wake-transitions.html 里的「浅睡」感受差异。</div>
+
+<script>
+const ORANGE='#DA1100', BLACK='#000', WHITE='#fff';
+const EYE_W=30, LCX=45, RCX=195, ECY=80;
+
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+// 闭眼弧（⌣）
+function eyeClosed(g,cx,cy,w,depth,thick){
+  g.strokeStyle=BLACK;g.lineWidth=thick;g.lineCap='round';
+  g.beginPath();
+  g.moveTo(cx-w/2,cy-depth*0.3);
+  g.quadraticCurveTo(cx,cy+depth,cx+w/2,cy-depth*0.3);
+  g.stroke();
+}
+function drawZ(g,x,y,size,alpha){
+  g.save();g.globalAlpha=alpha;g.fillStyle=WHITE;
+  g.font=`700 ${size}px "Segoe UI",sans-serif`;g.fillText('z',x,y);g.restore();
+}
+function drawBigZ(g,cx,cy,size,alpha){
+  g.save();g.globalAlpha=alpha;g.fillStyle=WHITE;
+  g.font=`800 ${size}px "Segoe UI",sans-serif`;
+  g.textAlign='center';g.fillText('Z',cx,cy);g.restore();
+}
+// 鼻涕泡：白圈+淡填充+高光，随呼吸吹大，破掉
+function bubble(g,cx,cy,r,alpha){
+  g.save();g.globalAlpha=alpha;
+  g.fillStyle='rgba(255,255,255,0.22)';
+  g.beginPath();g.arc(cx,cy,r,0,7);g.fill();
+  g.strokeStyle=WHITE;g.lineWidth=2.2;
+  g.beginPath();g.arc(cx,cy,r,0,7);g.stroke();
+  g.fillStyle='rgba(255,255,255,0.9)';      // 高光
+  g.beginPath();g.arc(cx-r*0.35,cy-r*0.35,Math.max(1.4,r*0.16),0,7);g.fill();
+  g.restore();
+}
+function popBurst(g,cx,cy,t){ // t:0..1 破裂飞溅
+  g.save();g.globalAlpha=1-t;g.strokeStyle=WHITE;g.lineWidth=2;g.lineCap='round';
+  for(let i=0;i<6;i++){const a=i/6*Math.PI*2;const r0=6+t*14,r1=10+t*22;
+    g.beginPath();g.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);
+    g.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);g.stroke();}
+  g.restore();
+}
+function breathe(ms,amp,period){return Math.sin(ms/period*Math.PI*2)*amp;}
+
+function bg(g){g.fillStyle=ORANGE;g.fillRect(0,0,240,240);}
+function eyes(g,dy,depth){
+  eyeClosed(g,LCX,ECY+dy,EYE_W*0.96,depth,7);
+  eyeClosed(g,RCX,ECY+dy,EYE_W*0.96,depth,7);
+}
+// 小 zzz 流
+function zzzStream(g,ms,alpha){
+  const n=1+Math.floor((ms/1300)%3);
+  for(let i=0;i<n;i++) drawZ(g,92+i*16,34-i*12,12+i*8,alpha);
+}
+
+// 鼻涕泡周期：约 4.2s 吹大→破
+function bubblePhase(ms){ return ((ms/4200)%1); }
+function renderBubble(g,ms){
+  const p=bubblePhase(ms);
+  const cx=128, cyBase=150;        // 鼻孔位置（眼下方偏右一点）
+  if(p<0.86){
+    const r=lerp(4,23,p/0.86);
+    bubble(g,cx,cyBase-r*0.2,r,1);
+  }else{
+    popBurst(g,cx,cyBase-4,(p-0.86)/0.14);
+  }
+}
+
+function variantA(g,ms){
+  bg(g);
+  const dy=breathe(ms,2.6,3400)+4;        // 下沉+慢呼吸
+  eyes(g,dy,7);
+  zzzStream(g,ms,0.85);
+  renderBubble(g,ms);
+}
+function variantB(g,ms){
+  bg(g);
+  const dy=breathe(ms,4.2,3800)+4;        // 更大更慢的呼吸
+  eyes(g,dy,8);
+  // 巨型 Z 脉动浮现（与呼吸同步，吸气时变大变亮）
+  const bp=(Math.sin(ms/3800*Math.PI*2)+1)/2; // 0..1
+  drawBigZ(g,150,40,28+bp*26, 0.4+bp*0.6);
+  drawZ(g,96,30,14,0.7);
+  drawZ(g,112,18,20,0.55);
+}
+function variantC(g,ms){
+  bg(g);
+  const dy=breathe(ms,3.6,3600)+4;
+  eyes(g,dy,8);
+  const bp=(Math.sin(ms/3600*Math.PI*2)+1)/2;
+  drawBigZ(g,156,40,26+bp*22,0.4+bp*0.6);
+  drawZ(g,96,30,14,0.7);
+  renderBubble(g,ms);
+}
+
+const gA=document.getElementById('cA').getContext('2d');
+const gB=document.getElementById('cB').getContext('2d');
+const gC=document.getElementById('cC').getContext('2d');
+let speed=1, clock=0, last=0;
+document.getElementById('speed').oninput=e=>{speed=+e.target.value;
+  document.getElementById('speedV').textContent=speed.toFixed(2).replace(/0$/,'')+'×';};
+
+function tick(now){
+  if(!last)last=now;
+  clock += (now-last)*speed; last=now;
+  variantA(gA,clock); variantB(gB,clock); variantC(gC,clock);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
