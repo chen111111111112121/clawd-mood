@@ -47,7 +47,7 @@ String   savedSSID    = "";
 String   savedPASS    = "";
 
 #define STA_CONNECT_TIMEOUT_MS 10000
-#define STATUS_TIMEOUT_MS      30000
+#define STATUS_TIMEOUT_MS      180000   // thinking/working 无新事件多久自动回 idle;放宽到 3min 以容纳长思考/长回答(纯生成阶段宿主不发事件)
 
 // ── Display ───────────────────────────────────────────────────
 #define DISP_W 240
