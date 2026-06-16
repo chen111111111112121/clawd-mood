@@ -33,4 +33,7 @@ void init();
 // 每帧推进：更新 mood、idle 轮播、行为脚本，并把姿态推给 eyes。由渲染 task 调。
 void tick(uint32_t nowMs);
 
+// 在 eyes::draw() 之后调：画 idle 表情装饰 + 睡眠 Zzz/鼻涕泡/O 嘴/唤醒花絮等覆盖层。
+void drawOverlays(uint32_t nowMs);
+
 } // namespace monitor

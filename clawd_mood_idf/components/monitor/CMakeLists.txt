@@ -1,6 +1,6 @@
 idf_component_register(
     SRCS "monitor.cpp"
     INCLUDE_DIRS "."
-    REQUIRES eyes mood
+    REQUIRES eyes mood display
     PRIV_REQUIRES esp_hw_support
 )
