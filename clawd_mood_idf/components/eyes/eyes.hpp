@@ -31,4 +31,7 @@ bool inTransition();
 // 给睡眠等"精确逐帧曲线"用——每帧调用，画面即等于 p；与 setPose(snap=true) 的区别是不置 zoneDirty。
 void scriptPose(const EyePose& p, uint8_t flags);
 
+// 本帧 draw() 是否做了整区清屏（样式切换等）。覆盖层据此强制重画自己被抹掉的装饰。
+bool zoneClearedThisFrame();
+
 } // namespace eyes

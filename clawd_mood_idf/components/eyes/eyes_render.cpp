@@ -4,6 +4,9 @@
 
 namespace eyes {
 
+// 本帧 drawRig 是否清过表情区（供覆盖层 zoneClearedThisFrame 查询）
+static bool s_zoneCleared = false;
+
 // ── 眨眼挤压表（drawRig 用）──
 const uint8_t BLINK_H_PCT[BLINK_FRAMES] = {106, 60, 8, 8, 70, 104, 100};
 const uint8_t BLINK_W_PCT[BLINK_FRAMES] = { 97, 105, 118, 118, 103, 98, 100};
@@ -152,6 +155,7 @@ static void eraseRectOutside(const EyeRect& p, int16_t nx, int16_t ny, int16_t n
 // ── 整窝增量重绘 ──（WINK 已解耦为 s_winkRight）
 void drawRig() {
     auto& g = display::gfx();
+    s_zoneCleared = false;
     int16_t ox  = rig.ox.cur >> 8;
     int16_t oy  = (rig.oy.cur >> 8) + rigBreathOffset();
     int16_t w   = rig.w.cur >> 8;   if (w < 4) w = 4;
@@ -178,6 +182,7 @@ void drawRig() {
         g.fillRect(0, EXPR_ZONE_Y, DISP_W, EXPR_ZONE_H, s_bgColor);
         rig.prevValid = false;
         rig.zoneDirty = false;
+        s_zoneCleared = true;
     }
 
     const int16_t cy = eyeCY() + oy;
@@ -235,5 +240,7 @@ void drawRig() {
 
 // ── 公开 API ──
 void draw() { drawRig(); }
+
+bool zoneClearedThisFrame() { return s_zoneCleared; }
 
 } // namespace eyes
