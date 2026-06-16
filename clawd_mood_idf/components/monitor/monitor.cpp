@@ -572,27 +572,32 @@ void drawSleepBubble(int16_t cx, int16_t cy, int16_t r) {
 }
 
 // 入睡打哈欠的 O 形嘴(黑色圆角矩形随 sin 张合;复用 IDLE_YAWN 画法,在 drawRig 之后画)
+// 防闪:不整块刷背景,而是"只擦旧嘴露出的边条(eraseRectOutside)+ 单次推新嘴精灵",
+//      重叠区每像素只写一次最终色,杜绝"整框先变橙再画黑"的闪烁。
 void tickYawnMouth(unsigned long now) {
   auto& g = display::gfx();
-  static bool    shown = false;
-  static int16_t pmw   = -1;
-  const int16_t EX = 98, EY = 126, EW = 44, EH = 48;            // 擦除区(容纳最大嘴)
+  static bool   shown = false;
+  static OvRect pm    = {0, 0, 0, 0, false};   // 上一帧嘴包围盒
+  static int16_t pmw  = -1;
   const float m = (s_state == MON_IDLE
                    && sleepScriptMs != 0 && !eyes::inTransition())
                   ? sleepYawnPhase(now - sleepScriptMs) : 0.f;   // 多次哈欠窗口
   if (m <= 0.02f) {
-    if (shown) { g.fillRect(EX, EY, EW, EH, OV_BG); shown = false; pmw = -1; }
+    if (shown) { if (pm.valid) g.fillRect(pm.x, pm.y, pm.w, pm.h, OV_BG); shown = false; pmw = -1; pm.valid = false; }
     return;
   }
   const int16_t mw = 10 + (int16_t)(30 * m), mh = 8 + (int16_t)(34 * m);
   if (mw == pmw && !eyes::zoneClearedThisFrame()) return;
   pmw = mw;
-  g.fillRect(EX, EY, EW, EH, OV_BG);                            // 擦上一帧整块,防残留
+  if (eyes::zoneClearedThisFrame()) pm.valid = false;   // 表情区被整清过:旧嘴已没,别再擦
+  const int16_t mx = 120 - mw / 2, my = 150 - mh / 2;
+  if (pm.valid) eraseRectOutside(pm, mx, my, mw, mh);   // 只擦旧嘴露出的部分(实心,不闪)
   lgfx::LGFX_Sprite cv(&g);
   cv.setColorDepth(16); cv.createSprite(mw, mh);
   cv.fillScreen(OV_BG);
   cv.fillRoundRect(0, 0, mw, mh, (mw < mh ? mw : mh) / 2, OV_BLACK);
-  cv.pushSprite(120 - mw / 2, 150 - mh / 2); cv.deleteSprite();
+  cv.pushSprite(mx, my); cv.deleteSprite();
+  pm = {mx, my, mw, mh, true};
   shown = true;
 }
 
