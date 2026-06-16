@@ -4,6 +4,7 @@
 #include "eyes.hpp"
 #include "mood.hpp"
 #include "monitor.hpp"
+#include "netsvc.hpp"
 #include "render_task.hpp"
 
 static const char *TAG = "clawd";
@@ -25,6 +26,8 @@ extern "C" void app_main(void)
     mood::init();
     monitor::init();
     ESP_LOGI(TAG, "boot mood: energy=%.0f joy=%.0f", mood::energy(), mood::joy());
+
+    netsvc::wifi_init();   // AP 常开 + 有 NVS 凭据则连 STA
 
     render_task_start();
 }
