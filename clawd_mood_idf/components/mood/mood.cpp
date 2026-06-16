@@ -13,9 +13,13 @@ constexpr float JOY_PER_DONE           = 30.0f;
 constexpr float MOOD_CHEERFUL_JOY      = 50.0f;
 constexpr float MOOD_TIRED_ENERGY      = 30.0f;
 constexpr uint32_t MOOD_FOCUSED_WINDOW_MS = 180000UL;
+constexpr float SLEEPINESS_PER_MIN     = 30.0f;
+constexpr float SLEEPINESS_EF_HI       = 0.6f;
+constexpr float SLEEPINESS_EF_LO       = 1.6f;
 
 float    s_energy = 80.0f;
 float    s_joy    = 0.0f;
+float    s_sleepiness = 0.0f;
 uint8_t  s_mood   = mood::COZY;
 uint32_t s_lastTick   = 0;
 uint32_t s_lastActive = 0;
@@ -52,6 +56,7 @@ void init() {
     }
     s_energy = (float)e;
     s_joy    = (float)j;
+    s_sleepiness = 0.0f;   // 开机醒着
     s_mood   = COZY;
 }
 
@@ -66,6 +71,12 @@ bool update(uint32_t now, bool active, bool sleeping) {
     else               { s_energy += ENERGY_RECOVER_PER_MIN * dtMin; }
     s_energy = clampf(s_energy, 0.0f, 100.0f);
     s_joy    = clampf(s_joy - JOY_DECAY_PER_MIN * dtMin, 0.0f, 100.0f);
+
+    // 困意：仅清醒 idle 累积，精力越低越快；睡眠/活动期不积（活动由 resetSleepiness 清零）
+    if (!active && !sleeping) {
+        const float ef = SLEEPINESS_EF_HI + (SLEEPINESS_EF_LO - SLEEPINESS_EF_HI) * (1.0f - s_energy / 100.0f);
+        s_sleepiness = clampf(s_sleepiness + SLEEPINESS_PER_MIN * ef * dtMin, 0.0f, 100.0f);
+    }
 
     uint8_t m;
     if (s_joy >= MOOD_CHEERFUL_JOY)                       m = CHEERFUL;
@@ -95,5 +106,8 @@ uint8_t pickAwakeExpr() {
 
 float energy() { return s_energy; }
 float joy()    { return s_joy; }
+
+float sleepiness() { return s_sleepiness; }
+void  resetSleepiness() { s_sleepiness = 0.0f; }
 
 } // namespace mood

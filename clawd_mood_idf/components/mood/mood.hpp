@@ -25,4 +25,8 @@ uint8_t pickAwakeExpr();
 float energy();
 float joy();
 
+// 困意（0..100）：idle 累积，精力越低涨越快；活动/睡眠期不累积。
+float sleepiness();
+void  resetSleepiness();   // 唤醒/有活动时清零
+
 } // namespace mood
