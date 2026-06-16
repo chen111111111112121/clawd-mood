@@ -1,12 +1,63 @@
 #include "netsvc.hpp"
 #include "monitor.hpp"
 #include <string.h>
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
 #include "nvs.h"
+
+// 配网页（移植自 .ino INDEX_HTML）：手机连 AP 后浏览器填家庭 WiFi。
+static const char INDEX_HTML[] = R"rawhtml(<!doctype html><html lang="zh"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clawd Mochi · 配网</title>
+<style>
+  :root{--bg:#0b0c10;--card:#15171b;--fg:#f2efe9;--muted:#9aa6b2;--accent:#da1100}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .card{width:100%;max-width:360px;background:var(--card);border-radius:16px;padding:26px 22px;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 20px;line-height:1.5}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input{width:100%;padding:11px 12px;border-radius:9px;border:1px solid #2a2d33;background:#0f1115;color:var(--fg);font-size:15px}
+  button{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.6}
+  #msg{margin-top:16px;font-size:13px;min-height:18px;line-height:1.5}
+  .ok{color:#50dc82}.err{color:#ff7a6a}
+</style></head><body>
+  <div class="card">
+    <h1>Clawd Mochi 配网</h1>
+    <p class="sub">连接家庭 WiFi 后，PC 的 Claude Code / Cursor 监测才能推送到设备。</p>
+    <label for="ssid">WiFi 名称 (SSID)</label>
+    <input id="ssid" autocomplete="off" placeholder="2.4G WiFi 名称">
+    <label for="pass">WiFi 密码</label>
+    <input id="pass" type="password" autocomplete="off" placeholder="密码">
+    <button id="save" onclick="save()">保存并连接</button>
+    <div id="msg"></div>
+  </div>
+<script>
+function save(){
+  var ssid=document.getElementById('ssid').value.trim();
+  var pass=document.getElementById('pass').value;
+  var msg=document.getElementById('msg'), btn=document.getElementById('save');
+  if(!ssid){msg.className='err';msg.textContent='请填写 WiFi 名称';return;}
+  btn.disabled=true;msg.className='';msg.textContent='连接中…';
+  fetch('/wifi/save?ssid='+encodeURIComponent(ssid)+'&pass='+encodeURIComponent(pass))
+    .then(function(r){return r.json()})
+    .then(function(j){
+      if(j.sta){msg.className='ok';msg.textContent='已连接 ✓ 设备 IP：'+j.sta_ip;}
+      else{msg.className='err';msg.textContent='连接失败，请检查名称/密码后重试';}
+    })
+    .catch(function(){msg.className='err';msg.textContent='请求失败，请重试';})
+    .finally(function(){btn.disabled=false;});
+}
+</script>
+</body></html>)rawhtml";
 
 static const char* TAG = "netsvc";
 static const char* AP_SSID = "ClaWD-Mood";
@@ -85,6 +136,61 @@ bool load_creds(char* ssid, size_t ssz, char* pass, size_t psz) {
     nvs_close(h);
     return ssid[0] != 0;
 }
+
+// 写 STA 配置（不重连）。
+void apply_sta(const char* ssid, const char* pass) {
+    wifi_config_t sta = {};
+    strncpy((char*)sta.sta.ssid, ssid, sizeof(sta.sta.ssid));
+    strncpy((char*)sta.sta.password, pass, sizeof(sta.sta.password));
+    esp_wifi_set_config(WIFI_IF_STA, &sta);
+}
+
+// 存凭据到 NVS + 重连 STA，阻塞等待至多 ~8s。返回是否连上。（在 HTTP task 调，可阻塞。）
+bool save_creds_and_reconnect(const char* ssid, const char* pass) {
+    nvs_handle_t h;
+    if (nvs_open("clawd", NVS_READWRITE, &h) == ESP_OK) {
+        nvs_set_str(h, "ssid", ssid);
+        nvs_set_str(h, "pass", pass);
+        nvs_commit(h);
+        nvs_close(h);
+    }
+    s_haveCreds = true; s_retry = 0;
+    apply_sta(ssid, pass);
+    esp_wifi_disconnect();
+    esp_wifi_connect();
+    for (int i = 0; i < 80 && !s_staConnected; i++) vTaskDelay(pdMS_TO_TICKS(100));
+    ESP_LOGI(TAG, "wifi/save '%s' -> %s", ssid, s_staConnected ? s_staIp : "(fail)");
+    return s_staConnected;
+}
+
+esp_err_t h_root(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_send(req, INDEX_HTML, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+esp_err_t h_wifi_save(httpd_req_t* req) {
+    char q[256] = {0}, rs[48] = {0}, rp[96] = {0}, ssid[33] = {0}, pass[65] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        httpd_query_key_value(q, "ssid", rs, sizeof(rs));
+        httpd_query_key_value(q, "pass", rp, sizeof(rp));
+        url_decode(rs, ssid, sizeof(ssid));
+        url_decode(rp, pass, sizeof(pass));
+    }
+    if (!ssid[0]) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"e\":1}");
+        return ESP_OK;
+    }
+    const bool ok = save_creds_and_reconnect(ssid, pass);
+    char resp[96];
+    snprintf(resp, sizeof(resp), "{\"ok\":1,\"sta\":%s,\"sta_ip\":\"%s\"}", ok ? "true" : "false", s_staIp);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, resp);
+    return ESP_OK;
+}
 } // namespace
 
 namespace netsvc {
@@ -138,8 +244,11 @@ void http_start() {
     }
     httpd_uri_t u_status = { .uri = "/status", .method = HTTP_GET, .handler = h_status, .user_ctx = nullptr };
     httpd_register_uri_handler(srv, &u_status);
-    // M6-2: 再注册 "/" 配网页 + "/wifi/save"
-    ESP_LOGI(TAG, "HTTP up: /status");
+    httpd_uri_t u_root = { .uri = "/", .method = HTTP_GET, .handler = h_root, .user_ctx = nullptr };
+    httpd_register_uri_handler(srv, &u_root);
+    httpd_uri_t u_save = { .uri = "/wifi/save", .method = HTTP_GET, .handler = h_wifi_save, .user_ctx = nullptr };
+    httpd_register_uri_handler(srv, &u_save);
+    ESP_LOGI(TAG, "HTTP up: / /status /wifi/save");
 }
 
 bool sta_connected() { return s_staConnected; }
