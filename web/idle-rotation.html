@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clawd Mochi · idle 轮播模拟（M4a）</title>
+<style>
+  :root{ --bg:#1a1410; --panel:#241b14; --border:#4a3828; --orange:#e87830; --text:#f0e6dc; --muted:#9a8878; --good:#5fc46e; --mid:#e8b13a; --blue:#6ab0e8; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  header{padding:20px 24px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#2a1810,#1a1410)}
+  header h1{margin:0 0 6px;font-size:1.4rem;color:var(--orange)}
+  header p{margin:0;color:var(--muted);font-size:.88rem;max-width:820px}
+  main{display:flex;flex-wrap:wrap;gap:28px;padding:24px}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px}
+  canvas.big{image-rendering:pixelated;border:4px solid #000;border-radius:14px;background:#DA1100;box-shadow:0 8px 30px rgba(0,0,0,.5);width:300px;height:300px}
+  .nowbox{text-align:center}
+  .nowname{font-size:1.5rem;font-weight:700;color:var(--text)}
+  .nowsub{font-size:.82rem;color:var(--muted);margin-top:2px}
+  .panel{flex:1;min-width:300px;max-width:520px;display:flex;flex-direction:column;gap:18px}
+  .hud{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .hud h3{margin:0 0 12px;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .row{display:flex;align-items:center;gap:12px;margin:10px 0;font-size:.9rem}
+  .row .lab{width:74px;color:var(--muted);flex-shrink:0}
+  .bar{flex:1;height:14px;background:#000;border-radius:8px;overflow:hidden;border:1px solid var(--border)}
+  .bar i{display:block;height:100%;border-radius:8px;transition:width .3s}
+  .bar.e i{background:linear-gradient(90deg,#e8623a,#5fc46e)}
+  .bar.j i{background:linear-gradient(90deg,#6a4,#e8b13a)}
+  .val{width:42px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+  .mood{display:inline-block;padding:3px 12px;border-radius:20px;font-weight:700;font-size:.92rem}
+  .mood.COZY{background:rgba(106,176,232,.16);color:var(--blue);border:1px solid rgba(106,176,232,.4)}
+  .mood.FOCUSED{background:rgba(95,196,110,.16);color:var(--good);border:1px solid rgba(95,196,110,.4)}
+  .mood.CHEERFUL{background:rgba(232,177,58,.16);color:var(--mid);border:1px solid rgba(232,177,58,.4)}
+  .mood.TIRED{background:rgba(154,136,120,.18);color:var(--muted);border:1px solid var(--border)}
+  .phase{font-size:.86rem;color:var(--muted)}
+  .phase b{color:var(--text)}
+  .pool{font-size:.82rem;color:var(--muted);margin-top:6px}
+  .pool span{color:var(--orange);font-weight:600}
+  .controls{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+  .controls .line{display:flex;align-items:center;gap:10px;font-size:.85rem;color:var(--muted);flex-wrap:wrap}
+  .controls input[type=range]{accent-color:var(--orange);flex:1;min-width:120px}
+  .controls input[type=checkbox]{accent-color:var(--orange)}
+  button{background:transparent;border:1px solid var(--orange);color:var(--text);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.85rem}
+  button:hover{background:var(--orange);color:#1a1008}
+  .strip{padding:8px 24px 36px}
+  .strip h2{font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:14px 0;border-bottom:1px dashed var(--border);padding-bottom:8px}
+  .thumbs{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:14px}
+  .thumb{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer}
+  .thumb.active{border-color:var(--orange);box-shadow:0 0 0 1px var(--orange)}
+  .thumb canvas{image-rendering:pixelated;border:2px solid #000;border-radius:7px;background:#DA1100;width:104px;height:104px}
+  .thumb .tn{font-size:.78rem;color:var(--text)}
+  .thumb .ti{font-size:.66rem;color:var(--muted)}
+  footer{padding:16px 24px 40px;color:var(--muted);font-size:.8rem;border-top:1px solid var(--border)}
+  footer code{background:#000;padding:1px 6px;border-radius:4px;color:var(--orange)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Clawd Mochi · idle 轮播模拟（M4a）</h1>
+  <p>忠实复刻固件 <code>monitor.cpp</code> 的清醒 idle 轮播：<b>普通眼 hub 停 10s → 按心情从 CHEER/CALM 池挑一个表情、循环 3 次 → 回普通</b>，往复。眼睛由与固件一致的 rig 引擎驱动（弹簧/眨眼/扫视/呼吸 + 各表情行为脚本）。情绪可手动冻结来预览不同心情的表情池。<b>覆盖层（音符/星光/Z 等装饰）标注「M4b」——固件里这些还没做。</b></p>
+</header>
+
+<main>
+  <div class="stage">
+    <canvas class="big" id="stageCv" width="240" height="240"></canvas>
+    <div class="nowbox">
+      <div class="nowname" id="nowName">普通眼</div>
+      <div class="nowsub" id="nowSub">idle hub</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="hud">
+      <h3>情绪状态（mood.cpp）</h3>
+      <div class="row"><span class="lab">心情</span><span class="mood COZY" id="moodTag">COZY 惬意</span></div>
+      <div class="row"><span class="lab">精力 energy</span><div class="bar e"><i id="barE" style="width:80%"></i></div><span class="val" id="valE">80</span></div>
+      <div class="row"><span class="lab">心情 joy</span><div class="bar j"><i id="barJ" style="width:0%"></i></div><span class="val" id="valJ">0</span></div>
+      <div class="phase" id="phaseTxt">阶段：<b>普通 hub</b></div>
+      <div class="pool" id="poolTxt">当前池：<span>CALM</span>（好奇/眨眼/惊讶/害羞/听歌/转圈）</div>
+    </div>
+
+    <div class="controls">
+      <div class="line"><label><input type="checkbox" id="freeze"> 冻结情绪（手动调下面两条，预览各心情的表情池）</label></div>
+      <div class="line"><span style="width:74px">energy</span><input type="range" id="setE" min="0" max="100" value="80"></div>
+      <div class="line"><span style="width:74px">joy</span><input type="range" id="setJ" min="0" max="100" value="0"></div>
+      <div class="line">
+        速度 <input type="range" id="speed" min="1" max="3" value="2" step="1" style="max-width:90px"><span id="speedTxt">正常</span>
+        <button id="skip">⏭ 立刻切下一个</button>
+        <button id="pause">⏸ 暂停</button>
+      </div>
+      <div class="line" style="font-size:.78rem">提示：把 joy 拉到 ≥50（且 energy&gt;30）→ 心情变 CHEERFUL，轮播切到 CHEER 池（开心/星星/偷笑/听歌/爱心/花痴）。</div>
+    </div>
+  </div>
+</main>
+
+<section class="strip">
+  <h2>全部 14 个 idle 表情（点一个可在上方大屏单独预览）</h2>
+  <div class="thumbs" id="thumbs"></div>
+</section>
+
+<footer>
+  轮播逻辑与时间常量（<code>NORMAL_HOLD_MS=10s</code>、<code>OTHER_LOOP_COUNT=3</code>、<code>otherCycleMs</code>、CHEER/CALM 池、心情判定）均复刻自 <code>clawd_mood_idf/components/{mood,monitor}</code>。困倦/哈欠不进清醒轮播（归入 M4b 睡眠流程）。
+</footer>
+
+<script>
+/* ───────── 固件几何 / 颜色 ───────── */
+const DISP=240, EYE_W=30, EYE_H=60, EYE_GAP=120, EYE_OY=40;
+const BG='#DA1100', EYE='#000000', WHITE='#fff', BLUSH='#ff5a7a';
+const LCX=45, RCX=195, BASE_CY=80;
+const RECT=0,CHEVRON=1,ARC=2,HEART=3,STAR=4,SLEEP=5;
+const F_BLINK=1,F_SACCADE=2,F_BREATH=4,F_BREATH2=8;
+const HEART5=[0b01010,0b11111,0b11111,0b01110,0b00100];
+const STAR7=[0b0001000,0b0011100,0b1111111,0b0111110,0b0011100,0b0010100,0b0100010];
+const BLINK_H=[106,60,8,8,70,104,100], BLINK_W=[97,105,118,118,103,98,100];
+const BREATH=[0,1,1,2,2,2,1,1,0,-1,-1,-2,-2,-2,-1,-1];
+const DAMP=196/256;
+const springK=s=>(s===3?72:s===1?30:48)/256;
+const springTo=(s,t,k)=>{s.vel+=(t-s.cur)*k;s.vel*=DAMP;s.cur+=s.vel;};
+const springSnap=(s,t)=>{s.cur=t;s.vel=0;};
+const rand=(a,b)=>a+Math.random()*(b-a), irand=(a,b)=>Math.floor(rand(a,b));
+
+/* ───────── 绘制原语 ───────── */
+function rect(c,x,y,w,h,col){c.fillStyle=col;c.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));}
+function line(c,x1,y1,x2,y2,col){c.strokeStyle=col;c.lineWidth=1;c.beginPath();c.moveTo(x1,y1);c.lineTo(x2,y2);c.stroke();}
+function chevron(c,cx,cy,arm,reach,thk,right,col){for(let t=-thk;t<=thk;t++){if(right){line(c,cx-reach/2,cy-arm+t,cx+reach/2,cy+t,col);line(c,cx+reach/2,cy+t,cx-reach/2,cy+arm+t,col);}else{line(c,cx+reach/2,cy-arm+t,cx-reach/2,cy+t,col);line(c,cx-reach/2,cy+t,cx+reach/2,cy+arm+t,col);}}}
+function happyArc(c,cx,cy,w,col){const hw=w/2;for(let t=0;t<4;t++){line(c,cx-hw,cy+t,cx,cy-hw/2+t,col);line(c,cx,cy-hw/2+t,cx+hw,cy+t,col);}}
+function sleepArc(c,cx,cy,w,col){const hw=w/2,dip=7;for(let t=0;t<5;t++){line(c,cx-hw,cy-dip/2+t,cx,cy+dip+t,col);line(c,cx,cy+dip+t,cx+hw,cy-dip/2+t,col);}}
+function bmpAt(c,bmp,cols,cx,cy,s,col){const half=(cols-1)/2;for(let r=0;r<bmp.length;r++)for(let cc=0;cc<cols;cc++)if(bmp[r]&(1<<(cols-1-cc)))rect(c,cx+(cc-half)*s,cy+(r-half)*s,s,s,col);}
+const heartAt=(c,cx,cy,s,col)=>bmpAt(c,HEART5,5,cx,cy,s,col);
+const starAt=(c,cx,cy,s,col)=>bmpAt(c,STAR7,7,cx,cy,s,col);
+function text(c,str,cx,cy,size,col){c.fillStyle=col;c.font=`bold ${size}px "Segoe UI",monospace`;c.textAlign='center';c.textBaseline='middle';c.fillText(str,cx,cy);}
+
+/* ───────── 表情定义（与 monitor.cpp behaviorTick / applyExpression 一致；overlay=M4b 预览） ───────── */
+// pose: {style,ox,oy,w,h,lid}；behavior(r,now) 改 r.pose；wink 用 r.winkRight
+const EXPR={
+ 0:{name:'普通眼',sub:'idle hub',flags:F_BLINK|F_SACCADE|F_BREATH,pose:{style:RECT,ox:0,oy:0,w:EYE_W,h:EYE_H,lid:0}},
+ 1:{name:'困倦',sub:'(M4b 睡眠流程)',flags:F_BREATH2,pose:{style:RECT,ox:0,oy:8,w:EYE_W,h:EYE_H,lid:170},
+    overlay:(c,now)=>{const z=1+((now/1400|0)%3);for(let i=0;i<z;i++){text(c,'z',92+i*16,18+(2-i)*10,8*(i+1),WHITE);} }},
+ 2:{name:'爱心眼',sub:'心跳脉冲',flags:0,pose:{style:HEART,ox:0,oy:0,w:6,h:6,lid:0},
+    behavior:(r,now)=>{if(now>=r.behNext){r.pose.w=(r.pose.w===6)?7:6;r.pose.h=r.pose.w;r.behNext=now+600;}}},
+ 3:{name:'开心弧眼',sub:'缓动摇摆',flags:F_BREATH,pose:{style:ARC,ox:0,oy:8,w:30,h:30,lid:0},
+    behavior:(r,now)=>{const sway=[-6,-3,0,3,6,3,0,-3];if(now>=r.behNext){r.pose.ox=sway[r.behStep&7];r.behStep++;r.behNext=now+260;}}},
+ 4:{name:'好奇张望',sub:'东张西望 + 偶尔上抬',flags:F_BLINK,pose:{style:RECT,ox:0,oy:0,w:28,h:54,lid:0},
+    behavior:(r,now)=>{const d=[-22,22,-22,0,22,0];if(now>=r.behNext){r.pose.ox=d[r.behStep%6];r.pose.oy=(r.behStep%3===0)?-7:0;r.behStep++;r.behNext=now+((r.behStep&1)?520:300);}},
+    overlay:(c,now)=>{const cc=now%2600;if(cc<1500){const t=cc/1500;text(c,'?',120,44-Math.sin(t*Math.PI)*9,30,WHITE);}}},
+ 5:{name:'俏皮眨眼',sub:'右眼周期眯',flags:F_BREATH,pose:{style:RECT,ox:0,oy:0,w:EYE_W,h:56,lid:0},
+    behavior:(r,now)=>{r.winkRight=(now%2400)<1100;}},
+ 6:{name:'星星眼',sub:'缩放闪烁',flags:F_BREATH,pose:{style:STAR,ox:0,oy:0,w:7,h:7,lid:0},
+    behavior:(r,now)=>{if(now>=r.behNext){r.pose.w=(r.pose.w<=6)?8:6;r.behNext=now+360;}},
+    overlay:(c,now)=>{const tw=(p)=>{if(((now/300+p)|0)%2===0){}};}},
+ 7:{name:'惊讶',sub:'瞪大回缩',flags:F_BLINK,pose:{style:RECT,ox:0,oy:0,w:EYE_W,h:EYE_H,lid:0},
+    behavior:(r,now)=>{const pop=(now%2600)<900;r.pose.w=pop?42:EYE_W;r.pose.h=pop?64:EYE_H;r.pose.oy=pop?-2:0;},
+    overlay:(c,now)=>{const cc=now%2600;if(cc<900){const s=Math.min(1,cc/900*4);text(c,'!',120,40,30*s+6,WHITE);}}},
+ 8:{name:'害羞',sub:'撇视 + 腮红',flags:F_BLINK,pose:{style:RECT,ox:0,oy:6,w:24,h:42,lid:30},
+    behavior:(r,now)=>{if(now>=r.behNext){r.pose.ox=(r.behStep&1)?9:-9;r.behStep++;r.behNext=now+irand(900,1500);}},
+    overlay:(c,now)=>{const a=0.55+0.45*Math.abs(Math.sin(now/700));c.globalAlpha=a;rect(c,22,108,30,14,BLUSH);rect(c,188,108,30,14,BLUSH);c.globalAlpha=1;}},
+ 9:{name:'转圈晕乎',sub:'双眼画圈',flags:0,pose:{style:RECT,ox:0,oy:0,w:26,h:40,lid:60},
+    behavior:(r,now)=>{const a=now/360;r.pose.ox=Math.cos(a)*10;r.pose.oy=Math.sin(a)*6;},
+    overlay:(c,now)=>{for(let i=0;i<3;i++){const a=now/420+i*2.09;starAt(c,120+Math.cos(a)*20,26+Math.sin(a)*12,2,WHITE);}}},
+ 10:{name:'摇摆听歌',sub:'随拍摆 + 音符',flags:F_BREATH,pose:{style:ARC,ox:0,oy:8,w:30,h:30,lid:0},
+    behavior:(r,now)=>{const sway=[-7,-4,0,4,7,4,0,-4];if(now>=r.behNext){r.pose.ox=sway[r.behStep&7];r.behStep++;r.behNext=now+220;}},
+    overlay:(c,now)=>{const notes=['♪','♫','♪'];for(let i=0;i<2;i++){const b=now+i*900,cc=b%1800,t=cc/1800;c.globalAlpha=1-t;text(c,notes[(b/1800|0)%3],(i===0?34:206)+Math.sin(t*6)*4,150-t*70,22,WHITE);c.globalAlpha=1;}}},
+ 11:{name:'打哈欠',sub:'(M4b 睡眠流程)',flags:F_BREATH2,pose:{style:RECT,ox:0,oy:0,w:EYE_W,h:56,lid:0},
+    behavior:(r,now)=>{const cc=now%3400;if(cc<1700){const m=Math.sin(cc/1700*Math.PI);r.pose.lid=40+200*m;r.pose.h=56-18*m;}else{r.pose.lid=0;r.pose.h=56;}},
+    overlay:(c,now)=>{const cc=now%3400;if(cc<1700){const m=Math.sin(cc/1700*Math.PI),w=10+30*m,h=8+34*m;c.fillStyle='#3a0500';c.fillRect(120-w/2,150-h/2,w,h);}}},
+ 12:{name:'花痴飘心',sub:'爱心跳动',flags:0,pose:{style:HEART,ox:0,oy:0,w:6,h:6,lid:0},
+    behavior:(r,now)=>{if(now>=r.behNext){r.pose.w=(r.pose.w===6)?7:6;r.pose.h=r.pose.w;r.behNext=now+500;}},
+    overlay:(c,now)=>{for(let i=0;i<3;i++){const b=now+i*700,cc=b%2100,t=cc/2100;c.globalAlpha=1-t;heartAt(c,(i%2?RCX:LCX)+Math.sin(t*5+i)*6,BASE_CY-10-t*54,3,EYE);c.globalAlpha=1;}}},
+ 13:{name:'偷笑',sub:'憋笑上下抖',flags:0,pose:{style:ARC,ox:0,oy:8,w:30,h:30,lid:0},
+    behavior:(r,now)=>{const cc=now%2200;r.pose.oy=(cc<1100)?(8+(((now/90)|0)%2?-3:3)):8;}}
+};
+
+/* ───────── Rig（含 wink 右眼眯，复刻 drawRig） ───────── */
+class Rig{
+  constructor(id){ this.set(id); }
+  set(id){
+    const d=EXPR[id]; this.id=id; this.def=d;
+    this.pose=Object.assign({},d.pose); this.flags=d.flags||0;
+    this.ox={cur:d.pose.ox,vel:0};this.oy={cur:d.pose.oy,vel:0};
+    this.w={cur:d.pose.w,vel:0};this.h={cur:d.pose.h,vel:0};this.lid={cur:d.pose.lid,vel:0};
+    this.sacX=0;this.nextSac=irand(700,2000);this.blinkFrame=0;this.blinkAgain=false;this.nextBlink=irand(1500,3500);
+    this.breath=0;this.behNext=0;this.behStep=0;this.winkRight=false;
+  }
+  breathOff(){ if(!(this.flags&(F_BREATH|F_BREATH2)))return 0;let v=BREATH[(this.breath>>8)&15];if(this.flags&F_BREATH2)v*=2;return v;}
+  tick(now,speed){
+    if(this.def.behavior)this.def.behavior(this,now);
+    const k=springK(speed);
+    if(this.flags&F_SACCADE){if(now>=this.nextSac){this.sacX=irand(-3,4);this.nextSac=now+irand(700,2000);}}else this.sacX=0;
+    springTo(this.ox,this.pose.ox+this.sacX,k);springTo(this.oy,this.pose.oy,k);
+    springTo(this.w,this.pose.w,k);springTo(this.h,this.pose.h,k);springTo(this.lid,this.pose.lid,k);
+    if(this.blinkFrame>0){this.blinkFrame++;if(this.blinkFrame>7){if(this.blinkAgain){this.blinkFrame=1;this.blinkAgain=false;}else this.blinkFrame=0;}}
+    else if((this.flags&F_BLINK)&&now>=this.nextBlink){this.blinkFrame=1;this.blinkAgain=Math.random()<0.12;this.nextBlink=now+irand(2500,6000);}
+    if(this.flags&(F_BREATH|F_BREATH2))this.breath+=(speed===1?26:speed===3?60:40);
+  }
+  drawEye(c,cx,cy,w,h,lid,right){
+    switch(this.pose.style){
+      case CHEVRON:{const arm=(h/2)*(240-lid)/240;if(arm<=3)rect(c,cx-w/2,cy-4,w,8,EYE);else chevron(c,cx,cy,arm,w,10,right,EYE);break;}
+      case ARC:happyArc(c,cx,cy,w,EYE);break;
+      case SLEEP:sleepArc(c,cx,cy,w,EYE);break;
+      case HEART:heartAt(c,cx,cy,Math.max(3,Math.min(9,Math.round(w))),EYE);break;
+      case STAR:starAt(c,cx,cy,Math.max(2,Math.min(7,Math.round(w))),EYE);break;
+      default:{let vis=h*(240-lid)/240;if(vis<5)vis=5;rect(c,cx-w/2,cy-h/2+(h-vis),w,vis,EYE);}
+    }
+  }
+  render(c){
+    c.fillStyle=BG;c.fillRect(0,0,DISP,DISP);
+    let ox=this.ox.cur,oy=this.oy.cur+this.breathOff();
+    let w=Math.max(2,this.w.cur),h=Math.max(4,this.h.cur),lid=Math.max(0,Math.min(240,this.lid.cur));
+    if(this.blinkFrame>0){h*=BLINK_H[this.blinkFrame-1]/100;w*=BLINK_W[this.blinkFrame-1]/100;if(h<4)h=4;}
+    const cy=BASE_CY+oy;
+    if(this.pose.style===RECT&&this.winkRight){            // WINK:右眼眯成横条(复刻 drawRig)
+      let vis=h*(240-lid)/240;if(vis<5)vis=5;const top=cy-h/2+(h-vis);
+      rect(c,LCX+ox-w/2,top,w,vis,EYE);
+      rect(c,RCX+ox-w/2,cy-5,w,10,EYE);
+    }else{
+      this.drawEye(c,LCX+ox,cy,w,h,lid,true);
+      this.drawEye(c,RCX+ox,cy,w,h,lid,false);
+    }
+    if(this.def.overlay)this.def.overlay(c,simClock);
+  }
+}
+
+/* ───────── 情绪引擎（复刻 mood.cpp） ───────── */
+const mood={ e:80, j:0, name:'COZY', lastActive:-1e9,
+  update(dtMin,freeze){
+    if(!freeze){ this.e=Math.min(100,this.e+7*dtMin); this.j=Math.max(0,this.j-4*dtMin); }
+    if(this.j>=50) this.name='CHEERFUL';
+    else if(this.e<=30) this.name='TIRED';
+    else if(simClock-this.lastActive<180000) this.name='FOCUSED';
+    else this.name='COZY';
+  },
+  pickAwake(){
+    const CHEER=[3,6,13,10,2,12], CALM=[4,5,7,8,10,9];
+    const pool=(this.j>=50&&this.e>30)?CHEER:CALM;
+    return pool[irand(0,pool.length)];
+  },
+  pool(){ return (this.j>=50&&this.e>30)?'CHEER':'CALM'; }
+};
+const MOOD_CN={COZY:'惬意',FOCUSED:'专注',CHEERFUL:'雀跃',TIRED:'疲惫'};
+const POOL_CN={CHEER:'开心/星星/偷笑/听歌/爱心/花痴',CALM:'好奇/眨眼/惊讶/害羞/听歌/转圈'};
+
+/* ───────── 轮播引擎（复刻 monitor.cpp checkIdleRotation） ───────── */
+const NORMAL_HOLD=10000, LOOP_N=3;
+function otherCycleMs(e){switch(e){case 2:case 12:return 900;case 6:case 3:return 1200;case 5:case 13:return 1400;case 10:case 9:return 1600;case 11:case 1:return 1800;default:return 1300;}}
+let curExpr=0, showingOther=false, phaseMs=0, forced=null;
+const stage=new Rig(0);
+function rotate(now){
+  if(forced!==null){ if(forced!==curExpr){curExpr=forced;stage.set(curExpr);} phaseMs=now; return; }
+  if(phaseMs===0){phaseMs=now;curExpr=0;stage.set(0);return;}
+  if(!showingOther){
+    if(now-phaseMs<NORMAL_HOLD)return;
+    curExpr=mood.pickAwake();showingOther=true;phaseMs=now;stage.set(curExpr);
+  }else{
+    if(now-phaseMs<otherCycleMs(curExpr)*LOOP_N)return;
+    curExpr=0;showingOther=false;phaseMs=now;stage.set(0);
+  }
+}
+
+/* ───────── 缩略图：14 个全表情常驻预览 ───────── */
+const thumbs=[];
+const tWrap=document.getElementById('thumbs');
+for(let id=0;id<14;id++){
+  const d=EXPR[id];
+  const div=document.createElement('div');div.className='thumb';div.dataset.id=id;
+  const cv=document.createElement('canvas');cv.width=DISP;cv.height=DISP;
+  const tn=document.createElement('div');tn.className='tn';tn.textContent=d.name;
+  const ti=document.createElement('div');ti.className='ti';ti.textContent='#'+id;
+  div.append(cv,tn,ti);tWrap.appendChild(div);
+  thumbs.push({rig:new Rig(id),ctx:cv.getContext('2d'),el:div});
+  div.addEventListener('click',()=>{ forced=(forced===id)?null:id; updateForcedUI(); });
+}
+function updateForcedUI(){ thumbs.forEach(t=>t.el.classList.toggle('active',forced!==null&&+t.el.dataset.id===forced)); }
+
+/* ───────── 主循环：固定 33ms 步进 ───────── */
+let SPEED=2,PLAYING=true,simClock=0,last=null,acc=0;const TICK=33;
+const sCv=document.getElementById('stageCv').getContext('2d');
+function loop(ts){
+  if(last===null)last=ts;let dt=ts-last;last=ts;
+  if(PLAYING){
+    acc+=dt;if(acc>200)acc=200;
+    const freeze=document.getElementById('freeze').checked;
+    while(acc>=TICK){
+      simClock+=TICK;
+      mood.update(TICK/60000,freeze);
+      rotate(simClock);
+      stage.tick(simClock,SPEED);
+      thumbs.forEach(t=>t.rig.tick(simClock,SPEED));
+      acc-=TICK;
+    }
+    stage.render(sCv);
+    thumbs.forEach(t=>t.rig.render(t.ctx));
+    updateHUD();
+  }
+  requestAnimationFrame(loop);
+}
+function updateHUD(){
+  document.getElementById('nowName').textContent=EXPR[curExpr].name;
+  document.getElementById('nowSub').textContent=forced!==null?'手动锁定':(showingOther?EXPR[curExpr].sub:'idle hub');
+  const tag=document.getElementById('moodTag');tag.className='mood '+mood.name;tag.textContent=mood.name+' '+MOOD_CN[mood.name];
+  document.getElementById('barE').style.width=mood.e+'%';document.getElementById('valE').textContent=Math.round(mood.e);
+  document.getElementById('barJ').style.width=mood.j+'%';document.getElementById('valJ').textContent=Math.round(mood.j);
+  let ph;
+  if(forced!==null)ph='手动锁定 #'+forced;
+  else if(!showingOther){const left=Math.max(0,(NORMAL_HOLD-(simClock-phaseMs))/1000);ph='普通 hub（'+left.toFixed(1)+'s 后切表情）';}
+  else{const left=Math.max(0,(otherCycleMs(curExpr)*LOOP_N-(simClock-phaseMs))/1000);ph='穿插表情（'+left.toFixed(1)+'s 后回普通）';}
+  document.getElementById('phaseTxt').innerHTML='阶段：<b>'+ph+'</b>';
+  const p=mood.pool();document.getElementById('poolTxt').innerHTML='当前池：<span>'+p+'</span>（'+POOL_CN[p]+'）';
+  // 同步滑块(非拖动时)
+  if(!draggingE)document.getElementById('setE').value=Math.round(mood.e);
+  if(!draggingJ)document.getElementById('setJ').value=Math.round(mood.j);
+}
+requestAnimationFrame(loop);
+
+/* ───────── 控件 ───────── */
+let draggingE=false,draggingJ=false;
+const setE=document.getElementById('setE'),setJ=document.getElementById('setJ');
+setE.addEventListener('pointerdown',()=>draggingE=true);setE.addEventListener('pointerup',()=>draggingE=false);
+setJ.addEventListener('pointerdown',()=>draggingJ=true);setJ.addEventListener('pointerup',()=>draggingJ=false);
+setE.addEventListener('input',e=>{mood.e=+e.target.value;document.getElementById('freeze').checked=true;});
+setJ.addEventListener('input',e=>{mood.j=+e.target.value;document.getElementById('freeze').checked=true;});
+document.getElementById('speed').addEventListener('input',e=>{SPEED=+e.target.value;document.getElementById('speedTxt').textContent=SPEED===1?'慢':SPEED===3?'快':'正常';});
+document.getElementById('skip').addEventListener('click',()=>{ if(forced!==null)return; phaseMs=0; showingOther=false; });
+document.getElementById('pause').addEventListener('click',e=>{PLAYING=!PLAYING;e.target.textContent=PLAYING?'⏸ 暂停':'▶ 播放';});
+</script>
+</body>
+</html>
