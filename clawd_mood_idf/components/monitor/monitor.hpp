@@ -36,4 +36,8 @@ void tick(uint32_t nowMs);
 // 在 eyes::draw() 之后调：画 idle 表情装饰 + 睡眠 Zzz/鼻涕泡/O 嘴/唤醒花絮等覆盖层。
 void drawOverlays(uint32_t nowMs);
 
+// /status 状态推送：thinking/working/done/alert/idle/offline。线程安全（仅写待应用缓冲，
+// 由 render task 的 tick() 消费），故可在 HTTP task 线程直接调。act/info 可为 nullptr/""。
+void setState(const char* s, const char* act, const char* info);
+
 } // namespace monitor

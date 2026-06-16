@@ -28,6 +28,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "boot mood: energy=%.0f joy=%.0f", mood::energy(), mood::joy());
 
     netsvc::wifi_init();   // AP 常开 + 有 NVS 凭据则连 STA
+    netsvc::http_start();  // /status 路由（Hook 推状态切表情）
 
     render_task_start();
 }

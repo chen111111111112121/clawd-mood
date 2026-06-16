@@ -1,9 +1,11 @@
 #include "netsvc.hpp"
+#include "monitor.hpp"
 #include <string.h>
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_http_server.h"
 #include "nvs.h"
 
 static const char* TAG = "netsvc";
@@ -36,6 +38,40 @@ void on_wifi(void* arg, esp_event_base_t base, int32_t id, void* data) {
         s_staConnected = true; s_retry = 0;
         ESP_LOGI(TAG, "STA got IP: %s", s_staIp);
     }
+}
+
+// URL 解码（%XX + '+'→空格），就地写入 dst。hook 发的 info 一般是 ASCII。
+void url_decode(const char* src, char* dst, size_t dsz) {
+    size_t o = 0;
+    for (size_t i = 0; src[i] && o + 1 < dsz; i++) {
+        char c = src[i];
+        if (c == '+') { dst[o++] = ' '; }
+        else if (c == '%' && src[i+1] && src[i+2]) {
+            auto hex = [](char h)->int { if (h>='0'&&h<='9') return h-'0'; if (h>='a'&&h<='f') return h-'a'+10; if (h>='A'&&h<='F') return h-'A'+10; return 0; };
+            dst[o++] = (char)((hex(src[i+1]) << 4) | hex(src[i+2])); i += 2;
+        } else { dst[o++] = c; }
+    }
+    dst[o] = 0;
+}
+
+esp_err_t h_status(httpd_req_t* req) {
+    char q[192] = {0}, s[16] = {0}, act[16] = {0}, rawInfo[64] = {0}, info[40] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
+        httpd_query_key_value(q, "s",    s,       sizeof(s));
+        httpd_query_key_value(q, "act",  act,     sizeof(act));
+        httpd_query_key_value(q, "info", rawInfo, sizeof(rawInfo));
+        url_decode(rawInfo, info, sizeof(info));
+    }
+    if (!s[0]) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"e\":1}");
+        return ESP_OK;
+    }
+    monitor::setState(s, act, info);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":1}");
+    return ESP_OK;
 }
 
 // 从 NVS 读 ssid/pass(旧 Arduino 版同 namespace "clawd" 同键)。返回是否有 ssid。
@@ -90,6 +126,20 @@ void wifi_init() {
 
     ESP_ERROR_CHECK(esp_wifi_start());   // 触发 WIFI_EVENT_STA_START → on_wifi 里 connect
     ESP_LOGI(TAG, "WiFi up: AP '%s' (pass %s)%s", AP_SSID, AP_PASS, s_haveCreds ? " + STA" : "");
+}
+
+void http_start() {
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.lru_purge_enable = true;
+    httpd_handle_t srv = nullptr;
+    if (httpd_start(&srv, &cfg) != ESP_OK) {
+        ESP_LOGE(TAG, "httpd_start failed");
+        return;
+    }
+    httpd_uri_t u_status = { .uri = "/status", .method = HTTP_GET, .handler = h_status, .user_ctx = nullptr };
+    httpd_register_uri_handler(srv, &u_status);
+    // M6-2: 再注册 "/" 配网页 + "/wifi/save"
+    ESP_LOGI(TAG, "HTTP up: /status");
 }
 
 bool sta_connected() { return s_staConnected; }

@@ -20,6 +20,23 @@
 #define ACT_AGENT 5
 #define EDIT_COLS 17   // 打字机 edit 表情每行格数
 
+// thinking/working 无新事件多久自动回 idle（容长思考/长回答的纯生成阶段）
+#define STATUS_TIMEOUT_MS 180000
+
+// edit 打字机书写带几何（移植自 .ino）
+#define EDIT_CELL_W  12
+#define EDIT_LINE_X  18
+#define EDIT_LINE_Y  196
+#define EDIT_LINE_H  10
+#define EDIT_TRACE_Y 184
+#define EDIT_CARET_H 14
+#define EDIT_BAND_H  ((EDIT_LINE_Y + EDIT_CARET_H) - EDIT_TRACE_Y)
+
+// working 跑马灯几何
+#define TICKER_Y    213
+#define TICKER_H    (240 - TICKER_Y)
+#define TICKER_COLS 19
+
 namespace {
 using namespace eyes;
 
@@ -28,6 +45,58 @@ uint8_t  s_state    = MON_IDLE;
 uint8_t  s_idleExpr = IDLE_NORMAL;
 uint8_t  workAct    = ACT_WORK;
 bool     s_winkRight = false;
+
+// ── /status 状态机 ──
+uint32_t lastStatusMs   = 0;       // 上次状态推送时刻（0=从未；超时/alert 紧急度用）
+bool     statusTimedOut = false;
+// HTTP task → render task 的待应用状态：单写者=HTTP handler、单消费=render task tick，
+// 避免两个 task 同时改 rig/eyes（见计划「线程安全」）。
+volatile bool s_pending = false;
+char s_pendS[16]    = "";
+char s_pendAct[16]  = "";
+char s_pendInfo[24] = "";
+// done 庆祝（非阻塞，render task 内逐帧跑）
+bool     s_celebrate   = false;
+uint32_t s_celebrateMs = 0;
+// working 跑马灯
+char     tickerText[32]  = "";
+char     tickerDrawn[32] = "";
+uint8_t  tickerScroll    = 0;
+uint32_t tickerScrollMs  = 0;
+bool     tickerVisible   = false;
+
+// ── 状态助手（移植自 .ino parseAct/actVerb/setTickerText）──
+uint8_t parseAct(const char* a) {
+    if (!strcmp(a, "read"))  return ACT_READ;
+    if (!strcmp(a, "edit"))  return ACT_EDIT;
+    if (!strcmp(a, "run"))   return ACT_RUN;
+    if (!strcmp(a, "net"))   return ACT_NET;
+    if (!strcmp(a, "agent")) return ACT_AGENT;
+    return ACT_WORK;
+}
+const char* actVerb(uint8_t act) {
+    switch (act) {
+        case ACT_READ:  return "read";
+        case ACT_EDIT:  return "edit";
+        case ACT_RUN:   return "run";
+        case ACT_NET:   return "net";
+        case ACT_AGENT: return "agent";
+        default:        return "work";
+    }
+}
+void setTickerText(uint8_t act, const char* info) {
+    char clean[22];
+    uint8_t n = 0;
+    for (size_t i = 0; info[i] && n < 21; i++) {
+        const char c = info[i];
+        if (c >= 0x20 && c <= 0x7E) clean[n++] = c;   // 仅可打印 ASCII
+    }
+    clean[n] = 0;
+    if (n == 0) snprintf(tickerText, sizeof(tickerText), "> %s", actVerb(act));
+    else        snprintf(tickerText, sizeof(tickerText), "> %s %s", actVerb(act), clean);
+    tickerScroll = 0;
+    tickerDrawn[0] = 0;
+}
 
 // 行为脚本桥接：monitor 持有 behPose 副本，逐帧推给 eyes（见计划「关键设计」）
 EyePose  behPose  = POSE_NORMAL;
@@ -103,10 +172,24 @@ void applyExpression(bool snap) {
             case IDLE_GIGGLE:    p = POSE_GIGGLE;    f = 0;           break;
             default: break;
         }
+    } else if (s_state == MON_THINKING) {
+        p = POSE_THINK; f = RIG_BREATH;
+    } else if (s_state == MON_WORKING) {
+        switch (workAct) {
+            case ACT_READ: p = POSE_READ; f = RIG_BLINK; break;
+            case ACT_EDIT: p = POSE_EDIT; f = RIG_BLINK; break;
+            case ACT_RUN:  p = POSE_RUN;  f = 0;         break;
+            case ACT_NET:  p = POSE_NET;  f = RIG_BLINK; break;
+            default:       p = POSE_SCAN; f = 0;         break;
+        }
+    } else if (s_state == MON_ALERT) {
+        p = POSE_SURPRISED; f = RIG_BLINK | RIG_BREATH;   // 警觉眼 + 上方「!」角标
     }
+    // MON_OFFLINE 落到 POSE_NORMAL（静态普通眼）
     // 表情身份去重：同一表情重复不打断行为脚本
     uint8_t exprId = s_state;
-    if (s_state == MON_IDLE) exprId |= (uint8_t)(s_idleExpr << 4);
+    if (s_state == MON_IDLE)    exprId |= (uint8_t)(s_idleExpr << 4);
+    if (s_state == MON_WORKING) exprId |= (uint8_t)(workAct << 4);
     static uint8_t lastExprId = 255;
     if (!snap && exprId == lastExprId) return;
     lastExprId = exprId;
@@ -304,6 +387,81 @@ static void triggerWake(uint32_t now) {
     idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
 }
 
+// ── 消费 HTTP task 投递的待应用状态（移植自 .ino applyMonitorState，由 render task 调）──
+static void applyPendingState(uint32_t now) {
+    if (!s_pending) return;
+    char s[16], act[16], info[24];
+    strncpy(s,    s_pendS,    sizeof(s));    s[sizeof(s)-1]       = 0;
+    strncpy(act,  s_pendAct,  sizeof(act));  act[sizeof(act)-1]   = 0;
+    strncpy(info, s_pendInfo, sizeof(info)); info[sizeof(info)-1] = 0;
+    s_pending = false;   // 单消费者：清旗标即"已取"
+
+    if (!strcmp(s, "done")) {                 // 完成：唤醒 + 攒喜悦 + 非阻塞庆祝
+        lastStatusMs = now; statusTimedOut = false;
+        triggerWake(now);
+        mood::onDone();
+        s_state = MON_IDLE; s_idleExpr = IDLE_HAPPY;
+        idleShowingOther = true; idlePhaseMs = now;   // 当作一次"其他表情"，循环完自动回普通
+        s_celebrate = true; s_celebrateMs = now;
+        applyExpression(false);               // → 开心弧眼（happyStars + tickCelebrate 加料）
+        return;
+    }
+
+    uint8_t ns;
+    if      (!strcmp(s, "idle"))     ns = MON_IDLE;
+    else if (!strcmp(s, "thinking")) ns = MON_THINKING;
+    else if (!strcmp(s, "working"))  ns = MON_WORKING;
+    else if (!strcmp(s, "alert"))    ns = MON_ALERT;
+    else if (!strcmp(s, "offline"))  ns = MON_OFFLINE;
+    else return;                              // 未知状态：忽略
+    s_state = ns;
+
+    if (s_state == MON_WORKING) {
+        if (act[0]) { workAct = parseAct(act); setTickerText(workAct, info); }
+        else        { workAct = ACT_WORK; tickerText[0] = 0; }   // 老 hook/缺参：经典扫视无跑马灯
+    }
+
+    if (s_state == MON_THINKING || s_state == MON_WORKING || s_state == MON_ALERT)
+        triggerWake(now);                     // 活动事件唤醒（睡眠中也唤醒）
+    // idle/offline 不唤醒、不清困意（idle 继续累积；offline 暂停）
+    lastStatusMs = now; statusTimedOut = false;
+
+    switch (s_state) {
+        case MON_IDLE:
+            display::backlight(true);
+            if (sleepScriptMs == 0) {         // 睡眠中收到 idle：不打断，继续睡
+                idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
+                applyExpression(false);
+            }
+            break;
+        case MON_THINKING:
+        case MON_WORKING:
+        case MON_ALERT:
+            display::backlight(true);
+            applyExpression(false);
+            break;
+        case MON_OFFLINE:                     // 离线：普通眼 + 灭背光 + 复位入睡
+            sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
+            applyExpression(false);
+            display::backlight(false);
+            break;
+    }
+}
+
+// ── thinking/working 30s/3min 无新事件自动回 idle（移植自 .ino checkStatusTimeout）──
+static void checkStatusTimeout(uint32_t now) {
+    if (lastStatusMs == 0) return;
+    if (s_state == MON_IDLE || s_state == MON_OFFLINE) return;
+    if (s_state == MON_ALERT) return;         // alert 不超时：逐级加急直到新事件
+    if (now - lastStatusMs < STATUS_TIMEOUT_MS) return;
+    if (statusTimedOut) return;
+    statusTimedOut = true;
+    s_state = MON_IDLE;
+    display::backlight(true);
+    idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
+    applyExpression(false);
+}
+
 // ═══════════════════ 覆盖层（叠加在 drawRig 之上） ═══════════════════
 // ── 覆盖层共用色/坐标常量 ─────────────────────────────────────────
 constexpr uint16_t OV_BG    = 0xD880;   // 品牌橙脸底色(原 animBgColor)
@@ -311,6 +469,13 @@ constexpr uint16_t OV_WHITE = 0xFFFF;
 constexpr uint16_t OV_BLACK = 0x0000;
 constexpr uint16_t OV_BLUSH = 0xFAEF;
 constexpr int16_t  DISP_W = 240, LCX = 45, RCX = 195, EYECY = 80;  // = rigLCX(0)/rigRCX(0)/eyeCY()
+constexpr int16_t  DISP_H = 240;
+// 跑马灯/edit 配色（移植自 .ino color565）
+constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) { return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3); }
+constexpr uint16_t C_GREEN  = rgb565(80, 220, 130);
+constexpr uint16_t C_DARKBG = rgb565(10,  12,  16);
+constexpr uint16_t C_MUTED  = rgb565(90,  88,  86);
+constexpr uint16_t C_DIMGRN = rgb565(18,  92,  40);
 
 // 矩形结构(供 eraseRectOutside 局部使用)
 struct OvRect { int16_t x, y, w, h; bool valid; };
@@ -686,6 +851,186 @@ void tickSleepOverlay(unsigned long now) {
     }
   }
 }
+
+// ── ALERT 告急描边（仅第 3 档）：四周白边随脉冲；on=false 擦掉固定 10px 边框区 ──
+void alertBorder(bool on, unsigned long now) {
+  auto& g = display::gfx();
+  const int16_t MAX = 10;
+  g.fillRect(0, 0, DISP_W, MAX, OV_BG);
+  g.fillRect(0, DISP_H - MAX, DISP_W, MAX, OV_BG);
+  g.fillRect(0, 0, MAX, DISP_H, OV_BG);
+  g.fillRect(DISP_W - MAX, 0, MAX, DISP_H, OV_BG);
+  if (!on) return;
+  const double p = (sin((double)now / 300.0) + 1.0) / 2.0;   // 0..1 ~2s 呼吸
+  const int16_t th = (int16_t)(p * MAX);
+  if (th <= 0) return;
+  g.fillRect(0, 0, DISP_W, th, OV_WHITE);
+  g.fillRect(0, DISP_H - th, DISP_W, th, OV_WHITE);
+  g.fillRect(0, 0, th, DISP_H, OV_WHITE);
+  g.fillRect(DISP_W - th, 0, th, DISP_H, OV_WHITE);
+}
+
+// ── ALERT 角标：眼上一个上下跳的「!」，紧急度按无人处理时长分三档 ──
+void alertBadgeOverlay(unsigned long now) {
+  auto& g = display::gfx();
+  static uint32_t lastSig = 0xFFFFFFFF;
+  static bool shown = false;
+  const int16_t BX = DISP_W / 2 - 22, BY = 12, BW = 44, BH = 60;
+  const bool active = (s_state == MON_ALERT && !eyes::inTransition());
+  if (!active) {
+    if (shown) { g.fillRect(BX, BY, BW, BH, OV_BG); alertBorder(false, now); shown = false; lastSig = 0xFFFFFFFF; }
+    return;
+  }
+  const unsigned long el = now - lastStatusMs;
+  const uint8_t  stage  = (el >= 20000) ? 2 : (el >= 8000 ? 1 : 0);
+  const uint16_t period = (stage == 2) ? 420 : (stage == 1) ? 650 : 1400;
+  const int16_t  amp    = (stage == 2) ? 5   : (stage == 1) ? 4   : 3;
+  const int16_t  bw     = (stage == 2) ? 9   : (stage == 1) ? 8   : 6;
+  const int16_t  bh     = (stage == 2) ? 30  : (stage == 1) ? 27  : 22;
+  const int16_t  dh     = (stage == 2) ? 9   : (stage == 1) ? 8   : 6;
+  const int16_t  yo     = (int16_t)(sin((double)(now % period) / period * 2 * M_PI) * amp);
+  uint32_t sig = (uint32_t)stage * 100000 + (uint32_t)(yo + 20) * 1000;
+  if (stage == 2) sig += (now / 70) % 1000;                  // 告急档边框持续脉冲
+  if (sig == lastSig && shown && !eyes::zoneClearedThisFrame()) return;
+  lastSig = sig;
+  alertBorder(stage == 2, now);
+  g.fillRect(BX, BY, BW, BH, OV_BG);
+  const int16_t topY = 18 + yo;
+  g.fillRect(DISP_W / 2 - bw / 2, topY,          bw, bh, OV_WHITE);   // 「!」竖条
+  g.fillRect(DISP_W / 2 - bw / 2, topY + bh + 5, bw, dh, OV_WHITE);   // 「!」点
+  shown = true;
+}
+
+// ── 思考省略号：眼上三个黑点依次起跳「···」──
+void thinkingDotsOverlay(unsigned long now) {
+  auto& g = display::gfx();
+  static bool shown = false;
+  static uint32_t lastSig = 0xFFFFFFFF;
+  const int16_t BX = DISP_W / 2 - 38, BY = 48, BW = 76, BH = 26;
+  const bool active = (s_state == MON_THINKING && !eyes::inTransition());
+  if (!active) {
+    if (shown) { g.fillRect(BX, BY, BW, BH, OV_BG); shown = false; lastSig = 0xFFFFFFFF; }
+    return;
+  }
+  const uint32_t sig = (uint32_t)(now / 50);
+  if (sig == lastSig && shown && !eyes::zoneClearedThisFrame()) return;
+  lastSig = sig;
+  g.fillRect(BX, BY, BW, BH, OV_BG);
+  const int16_t cx = DISP_W / 2, baseY = 64;
+  for (uint8_t i = 0; i < 3; i++) {
+    const double ph = fmod((double)now / 260.0 - i + 30.0, 3.0);
+    const int16_t yo = (ph < 1.0) ? (int16_t)(sin(ph * M_PI) * 7) : 0;
+    g.fillCircle(cx - 26 + i * 26, baseY - yo, 5, OV_BLACK);
+  }
+  shown = true;
+}
+
+// ── working/edit 打字机：底部代码块 + 闪烁光标 + 上行暗痕（移植自 .ino rigOverlayTick edit 块）──
+void editCaretOverlay(unsigned long now) {
+  auto& g = display::gfx();
+  static bool caretOn = false;
+  static unsigned long caretMs = 0;
+  static uint8_t  lastEditCol = 255;   // 255=未在书写
+  static int16_t  lastCaretX  = -1;
+  static uint16_t editLine    = 0;
+  if (s_state == MON_WORKING && workAct == ACT_EDIT) {
+    const uint8_t col = (behStep > EDIT_COLS) ? EDIT_COLS : (uint8_t)behStep;
+    const int16_t caretX = EDIT_LINE_X + (int16_t)col * EDIT_CELL_W;
+    const bool wrapped = (lastEditCol != 255 && col < lastEditCol);
+    const bool jumped  = (lastEditCol != 255 && col > lastEditCol + 1);
+    const bool zc = eyes::zoneClearedThisFrame();
+    const bool rebuild = zc || lastEditCol == 255 || wrapped || jumped;
+    if (caretX != lastCaretX && lastCaretX >= 0) g.fillRect(lastCaretX, EDIT_LINE_Y, 8, EDIT_CARET_H, OV_BG);
+    if (rebuild) {
+      if (lastEditCol == 255) editLine = 0;
+      if (wrapped) editLine++;
+      g.fillRect(0, EDIT_TRACE_Y, DISP_W, EDIT_BAND_H, OV_BG);
+      if (editLine > 0) {
+        const int16_t tw = (editLine & 1) ? 150 : 110;
+        for (int16_t x = EDIT_LINE_X; x < EDIT_LINE_X + tw; x += EDIT_CELL_W) g.fillRect(x, EDIT_TRACE_Y, 8, 6, C_DIMGRN);
+      }
+      for (uint8_t i = 0; i < col; i++) {
+        if ((i * 7 + editLine * 3) % 5 == 0) continue;
+        g.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
+      }
+    } else if (col == lastEditCol + 1) {
+      const uint8_t i = col - 1;
+      if ((i * 7 + editLine * 3) % 5 != 0) g.fillRect(EDIT_LINE_X + i * EDIT_CELL_W, EDIT_LINE_Y, 8, EDIT_LINE_H, C_GREEN);
+    }
+    lastEditCol = col;
+    if (caretX != lastCaretX) {
+      lastCaretX = caretX; caretOn = true; caretMs = now;
+      g.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, C_GREEN);
+    } else if (rebuild) {
+      if (caretOn) g.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, C_GREEN);
+    } else if (now - caretMs >= 400) {
+      caretOn = !caretOn; caretMs = now;
+      g.fillRect(caretX, EDIT_LINE_Y, 8, EDIT_CARET_H, caretOn ? C_GREEN : OV_BG);
+    }
+  } else if (lastEditCol != 255) {
+    g.fillRect(0, EDIT_TRACE_Y, DISP_W, EDIT_BAND_H, OV_BG);
+    lastEditCol = 255; lastCaretX = -1; editLine = 0;
+  }
+}
+
+// ── Activity ticker（仅 MON_WORKING，底部一行打字机式状态文本）──
+void clearTicker() {
+  if (!tickerVisible) return;
+  display::gfx().fillRect(0, TICKER_Y, DISP_W, TICKER_H, OV_BG);
+  tickerVisible = false; tickerDrawn[0] = 0; tickerScroll = 0;
+}
+void drawTickerFrame(const char* txt) {
+  auto& g = display::gfx();
+  g.fillRect(0, TICKER_Y, DISP_W, TICKER_H, C_DARKBG);
+  g.drawFastHLine(0, TICKER_Y, DISP_W, C_MUTED);
+  g.setTextColor(C_GREEN); g.setTextSize(2); g.setCursor(4, TICKER_Y + 5);
+  char buf[TICKER_COLS + 1];
+  strncpy(buf, txt, TICKER_COLS); buf[TICKER_COLS] = 0;
+  g.print(buf); g.setTextSize(1);
+  tickerVisible = true;
+}
+void tickTicker(unsigned long now) {
+  if (s_state != MON_WORKING || tickerText[0] == 0) { clearTicker(); return; }
+  const size_t len = strlen(tickerText);
+  if (len <= TICKER_COLS) {                       // 静态：仅变化时重绘
+    if (strcmp(tickerText, tickerDrawn) != 0) { drawTickerFrame(tickerText); strcpy(tickerDrawn, tickerText); }
+    return;
+  }
+  if (now - tickerScrollMs < 150) return;         // 跑马灯
+  tickerScrollMs = now;
+  const size_t vlen = len + 3;
+  char win[TICKER_COLS + 1];
+  for (uint8_t i = 0; i < TICKER_COLS; i++) { const size_t idx = (tickerScroll + i) % vlen; win[i] = (idx < len) ? tickerText[idx] : ' '; }
+  win[TICKER_COLS] = 0;
+  drawTickerFrame(win);
+  tickerScroll = (uint8_t)((tickerScroll + 1) % vlen);
+}
+
+// ── done 庆祝：开心弧眼之上，顶/底安全条 ~1.6s 闪烁星点（非阻塞）──
+uint32_t celebSig = 0xFFFFFFFF;
+void tickCelebrate(unsigned long now) {
+  if (!s_celebrate) return;
+  auto& g = display::gfx();
+  const int16_t TY = 4, TH = 30, BY = 196, BH = 30;
+  const unsigned long t = now - s_celebrateMs;
+  if (t > 1600) {
+    g.fillRect(0, TY, DISP_W, TH, OV_BG);
+    g.fillRect(0, BY, DISP_W, BH, OV_BG);
+    s_celebrate = false; celebSig = 0xFFFFFFFF;
+    return;
+  }
+  const uint32_t sig = now / 90;
+  if (sig == celebSig && !eyes::zoneClearedThisFrame()) return;
+  celebSig = sig;
+  g.fillRect(0, TY, DISP_W, TH, OV_BG);
+  g.fillRect(0, BY, DISP_W, BH, OV_BG);
+  static const int16_t sx[5] = {28, 76, 120, 164, 212};
+  for (uint8_t i = 0; i < 5; i++) {
+    const uint8_t sc = 1 + (uint8_t)((now / 120 + i) % 3);
+    drawStarAt(sx[i],     TY + 15, sc, OV_WHITE);
+    drawStarAt(sx[4 - i], BY + 15, sc, OV_WHITE);
+  }
+}
 } // namespace
 
 namespace monitor {
@@ -698,15 +1043,12 @@ void init() {
 }
 
 void tick(uint32_t now) {
+    applyPendingState(now);     // 先消费 HTTP task 投递的 /status 状态（单消费者）
+    checkStatusTimeout(now);    // thinking/working 久无新事件自动回 idle
+
     const bool active = (s_state == MON_THINKING || s_state == MON_WORKING);
     const bool sleeping = (s_state == MON_IDLE && sleepStage >= SLEEP_ASLEEP);
     bool moodChanged = mood::update(now, active, sleeping);
-
-    // —— 临时调试自动唤醒：熟睡满 8s 自醒，便于真机看完整 睡→醒→再睡 循环。M6 接 /status 后删除。——
-    if (s_state == MON_IDLE && sleepStage == SLEEP_DEEP && sleepScriptMs != 0
-        && (now - sleepScriptMs) > (SLP_DEEP_AT + 8000)) {
-        triggerWake(now);
-    }
 
     // 困意到阈值 → 起入睡脚本
     if (s_state == MON_IDLE && sleepScriptMs == 0 && mood::sleepiness() >= SLEEP_DROWSY_AT) {
@@ -725,11 +1067,25 @@ void tick(uint32_t now) {
 }
 
 void drawOverlays(uint32_t now) {
-    idleNewOverlay(now);     // idle 表情飘字/精灵(自带 active 守卫)
-    happyStars(now);         // 开心眼偶发星
-    tickYawnMouth(now);      // 入睡 O 嘴
-    tickSleepOverlay(now);   // 睡着 Zzz + 熟睡鼻涕泡
-    tickWakeFlourish(now);   // 唤醒花絮
+    idleNewOverlay(now);       // idle 表情飘字/精灵(自带 active 守卫)
+    happyStars(now);           // 开心眼偶发星
+    tickYawnMouth(now);        // 入睡 O 嘴
+    tickSleepOverlay(now);     // 睡着 Zzz + 熟睡鼻涕泡
+    tickWakeFlourish(now);     // 唤醒花絮
+    thinkingDotsOverlay(now);  // thinking 省略号
+    alertBadgeOverlay(now);    // alert「!」角标(+告急描边)
+    editCaretOverlay(now);     // working/edit 打字机书写带
+    tickTicker(now);           // working 底部跑马灯
+    tickCelebrate(now);        // done 庆祝星点
+}
+
+// /status 推送：仅写"待应用"缓冲，由 render task 的 tick() 消费（线程安全，见计划）。
+// 在 HTTP task 线程被调，故不直接触碰 rig/eyes。
+void setState(const char* s, const char* act, const char* info) {
+    strncpy(s_pendS,    s    ? s    : "", sizeof(s_pendS));    s_pendS[sizeof(s_pendS)-1]       = 0;
+    strncpy(s_pendAct,  act  ? act  : "", sizeof(s_pendAct));  s_pendAct[sizeof(s_pendAct)-1]   = 0;
+    strncpy(s_pendInfo, info ? info : "", sizeof(s_pendInfo)); s_pendInfo[sizeof(s_pendInfo)-1] = 0;
+    s_pending = true;   // 最后置旗标：消费者读到 true 时三个缓冲已就绪
 }
 
 } // namespace monitor
