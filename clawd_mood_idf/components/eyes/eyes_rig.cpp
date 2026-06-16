@@ -135,4 +135,13 @@ void setBgColor(uint16_t color) { s_bgColor = color; }
 void setSpeed(uint8_t s)        { s_speed = s; }
 bool inTransition()             { return rig.trans != 0; }
 
+void scriptPose(const EyePose& p, uint8_t flags) {
+    rig.pose = p; rig.flags = flags; rig.drawnStyle = p.style; rig.trans = 0;
+    springSnap(rig.ox,  (int32_t)p.ox  << 8);
+    springSnap(rig.oy,  (int32_t)p.oy  << 8);
+    springSnap(rig.w,   (int32_t)p.w   << 8);
+    springSnap(rig.h,   (int32_t)p.h   << 8);
+    springSnap(rig.lid, (int32_t)p.lid << 8);
+}
+
 } // namespace eyes

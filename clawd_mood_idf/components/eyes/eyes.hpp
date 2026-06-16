@@ -27,4 +27,8 @@ void setSpeed(uint8_t s);
 // 是否正处于样式切换的闭眼→睁眼过渡中（行为脚本据此暂停推姿态）。
 bool inTransition();
 
+// 逐帧直驱：把目标设为 p 并立刻 snap 全部弹簧到位（不触发整区清屏、不清眨眼）。
+// 给睡眠等"精确逐帧曲线"用——每帧调用，画面即等于 p；与 setPose(snap=true) 的区别是不置 zoneDirty。
+void scriptPose(const EyePose& p, uint8_t flags);
+
 } // namespace eyes
