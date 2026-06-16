@@ -22,6 +22,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(err);
 
     display::init();
+    monitor::bootGreeting();   // 开机问候（阻塞 ~2.3s），随后 eyes::init() 清屏接管
     eyes::init();
     mood::init();
     monitor::init();

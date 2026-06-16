@@ -9,6 +9,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
+#include "mdns.h"
 #include "nvs.h"
 
 // 配网页（移植自 .ino INDEX_HTML）：手机连 AP 后浏览器填家庭 WiFi。
@@ -69,6 +70,18 @@ bool s_staConnected = false;
 char s_staIp[16] = "";
 int  s_retry = 0;
 bool s_haveCreds = false;
+bool s_mdnsUp = false;
+
+// 起 mDNS：clawd.local + _http._tcp:80。仅首次连上 STA 时起一次。
+void start_mdns() {
+    if (s_mdnsUp) return;
+    if (mdns_init() != ESP_OK) { ESP_LOGW(TAG, "mdns_init failed"); return; }
+    mdns_hostname_set("clawd");
+    mdns_instance_name_set("Clawd Mochi");
+    mdns_service_add(nullptr, "_http", "_tcp", 80, nullptr, 0);
+    s_mdnsUp = true;
+    ESP_LOGI(TAG, "mDNS up: http://clawd.local");
+}
 
 void on_wifi(void* arg, esp_event_base_t base, int32_t id, void* data) {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
@@ -88,6 +101,7 @@ void on_wifi(void* arg, esp_event_base_t base, int32_t id, void* data) {
         snprintf(s_staIp, sizeof(s_staIp), IPSTR, IP2STR(&e->ip_info.ip));
         s_staConnected = true; s_retry = 0;
         ESP_LOGI(TAG, "STA got IP: %s", s_staIp);
+        start_mdns();   // 连上后起 clawd.local
     }
 }
 

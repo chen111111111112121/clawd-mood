@@ -27,6 +27,9 @@
 
 namespace monitor {
 
+// 开机问候动画（阻塞 ~2.3s，纯 display 直绘）。须在 display::init() 之后、eyes::init() 之前调。
+void bootGreeting();
+
 // 初始化：snap 到普通表情、起 idle 轮播。须在 eyes::init() 与 mood::init() 之后调。
 void init();
 

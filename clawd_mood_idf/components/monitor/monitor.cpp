@@ -4,6 +4,8 @@
 #include "mood.hpp"
 #include "display.hpp"
 #include "esp_random.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <math.h>
 #include <string.h>
 
@@ -1034,6 +1036,48 @@ void tickCelebrate(unsigned long now) {
 } // namespace
 
 namespace monitor {
+
+// 开机问候动画（阻塞，~2.3s）：闭眼→缓缓睁开→腮红→上扬嘴+小星+右眼眨一下→定格。
+// 纯 display::gfx() 直绘，不碰 eyes/mood；须在 eyes::init() 之前调（init 会 fillScreen 接管）。
+void bootGreeting() {
+    auto& g = display::gfx();
+    const int16_t lx = LCX - EYE_W / 2, rx = RCX - EYE_W / 2;   // 眼左上 x = 30 / 180
+    const int16_t ey = EYECY - EYE_H / 2, ecy = EYECY;          // 眼顶 y = 50 / 眼中心 = 80
+    const int16_t bw = 26, bh = 12, by = 116;                   // 腮红块
+
+    g.fillScreen(OV_BG);
+    g.fillRect(lx, ecy - 3, EYE_W, 6, OV_BLACK);               // 1) 闭眼细线
+    g.fillRect(rx, ecy - 3, EYE_W, 6, OV_BLACK);
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    const uint8_t OPEN_STEPS = 18;                              // 2) ease-out 睁开（只增不减覆盖，无闪）
+    for (uint8_t s = 1; s <= OPEN_STEPS; s++) {
+        const float t = (float)s / OPEN_STEPS;
+        const float e = 1.0f - (1.0f - t) * (1.0f - t);
+        int16_t vis = 6 + (int16_t)((EYE_H - 6) * e);
+        if (vis > EYE_H) vis = EYE_H;
+        const int16_t top = ecy - vis / 2;
+        g.fillRect(lx, top, EYE_W, vis, OV_BLACK);
+        g.fillRect(rx, top, EYE_W, vis, OV_BLACK);
+        vTaskDelay(pdMS_TO_TICKS(55));
+    }
+
+    for (uint8_t k = 1; k <= 3; k++) {                          // 3) 腮红分级放大浮现
+        const int16_t w = bw * k / 3, h = bh * k / 3;
+        g.fillRoundRect(LCX - w / 2, by + (bh - h) / 2, w, h, 4, OV_BLUSH);
+        g.fillRoundRect(RCX - w / 2, by + (bh - h) / 2, w, h, 4, OV_BLUSH);
+        vTaskDelay(pdMS_TO_TICKS(90));
+    }
+
+    drawHappyArc(DISP_W / 2, 150, 40, OV_BLACK);                // 4) 上扬小嘴 + 右上小星 + 右眼眨
+    drawStarAt(206, 34, 3, OV_WHITE);
+    vTaskDelay(pdMS_TO_TICKS(120));
+    g.fillRect(rx, ey, EYE_W, (ecy - 3) - ey, OV_BG);          // 右眼闭：只擦上下两条细缝
+    g.fillRect(rx, ecy + 3, EYE_W, (ey + EYE_H) - (ecy + 3), OV_BG);
+    vTaskDelay(pdMS_TO_TICKS(170));
+    g.fillRect(rx, ey, EYE_W, EYE_H, OV_BLACK);                // 右眼睁回：黑块覆盖
+    vTaskDelay(pdMS_TO_TICKS(500));                            // 5) 定格
+}
 
 void init() {
     s_state = MON_IDLE;
