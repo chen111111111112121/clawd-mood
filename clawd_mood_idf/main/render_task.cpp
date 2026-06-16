@@ -17,9 +17,10 @@ static void renderTask(void *arg)
 
     for (;;) {
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
-        monitor::tick(now);   // 推进 mood/idle 轮播/行为脚本 → eyes
+        monitor::tick(now);   // 推进 mood/idle 轮播/行为脚本/睡眠 → eyes
         eyes::tick(now);
         eyes::draw();
+        monitor::drawOverlays(now);   // 眼睛之上叠加装饰/Zzz/鼻涕泡/花絮
 
         frames++;
         if (now - fpsWindowStart >= 5000) {
