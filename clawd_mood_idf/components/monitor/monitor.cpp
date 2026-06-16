@@ -42,6 +42,31 @@ uint8_t  behStep   = 0;
 inline int32_t rrand(int32_t n)            { return n > 0 ? (int32_t)(esp_random() % (uint32_t)n) : 0; }
 inline int32_t rrand(int32_t a, int32_t b) { return a + rrand(b - a); }
 
+// ── 睡眠阶段 ──
+enum { SLEEP_AWAKE=0, SLEEP_DROWSY=1, SLEEP_ASLEEP=2, SLEEP_DEEP=3 };
+constexpr float    SLEEP_DROWSY_AT = 25.0f;     // 困意≥ 触发入睡
+constexpr uint32_t SLP_YAWN_DUR = 1800;
+constexpr uint32_t SLP_CLOSE_AT = 16500;
+constexpr uint32_t SLP_DEEP_AT  = 18000;
+
+uint8_t  sleepStage    = SLEEP_AWAKE;
+uint32_t sleepScriptMs = 0;     // 0=清醒 >0=入睡/睡眠中(锚点)
+bool     sleepInited   = false;
+bool     sleepClosed   = false;
+
+// 入睡曲线缓动
+inline float sl_clamp(float v,float a,float b){return v<a?a:(v>b?b:v);}
+inline float sl_seg(float t,float a,float b){return sl_clamp((t-a)/(b-a),0.f,1.f);}
+inline float sl_eio(float t){return t<0.5f?2.f*t*t:1.f-powf(-2.f*t+2.f,2.f)/2.f;}
+inline float sl_eo(float t){return 1.f-powf(1.f-t,3.f);}
+inline float sl_lerp(float a,float b,float t){return a+(b-a)*t;}
+const uint16_t SLEEP_YAWNS[3] = {0,4200,8400};
+inline float sleepYawnPhase(uint32_t se){
+    for(uint8_t i=0;i<3;i++) if(se>=SLEEP_YAWNS[i] && se<SLEEP_YAWNS[i]+SLP_YAWN_DUR)
+        return sinf((float)(se-SLEEP_YAWNS[i])/(float)SLP_YAWN_DUR*(float)M_PI);
+    return 0.f;
+}
+
 uint32_t otherCycleMs(uint8_t expr) {
     switch (expr) {
         case IDLE_HEART: case IDLE_LOVE:    return 900;
@@ -224,6 +249,54 @@ void checkIdleRotation(uint32_t now) {
         applyExpression(false);
     }
 }
+
+// ── 入睡脚本：困意累出后从清醒平滑滑入熟睡（逐帧驱动，移植自 .ino:1705-1742）──
+static void tickSleep(uint32_t now) {
+    if (sleepScriptMs == 0) return;
+    const uint32_t se = now - sleepScriptMs;
+
+    if (se < SLP_CLOSE_AT) {                 // 入睡曲线：RECT，多次哈欠 + 渐沉 + 慢眨 + 点头
+        if (!sleepInited) { eyes::setPose(POSE_NORMAL, 0, true); sleepInited = true; }
+        const float t = (float)se;
+        float open;
+        if      (t < 10000) open = sl_lerp(1.00f, 0.42f, sl_eio(sl_seg(t, 0, 10000)));
+        else if (t < 13000) open = 0.42f;
+        else if (t < 15000) open = sl_lerp(0.42f, 0.12f, sl_eio(sl_seg(t, 13000, 15000)));
+        else                open = sl_lerp(0.12f, 0.00f, sl_eio(sl_seg(t, 15000, 16500)));
+        float oy = sinf(t / 2600.0f * 2.0f * (float)M_PI) * 1.6f;
+        const float ym = sleepYawnPhase(se);
+        if (ym > 0) { open = fminf(open, 1.0f - 0.72f * ym); oy += -3.0f * ym; }
+        const int16_t bw[3][2] = {{3000,500},{7000,560},{14200,760}};
+        for (uint8_t i = 0; i < 3; i++)
+            if (t >= bw[i][0] && t < bw[i][0] + bw[i][1])
+                open *= 1.0f - sinf(sl_seg(t, bw[i][0], bw[i][0] + bw[i][1]) * (float)M_PI);
+        if (t >= 10000 && t < 13000) {
+            if (t < 11300)      { oy += sl_lerp(0,16, sl_eio(sl_seg(t,10200,11300))); open = fminf(open, sl_lerp(0.40f,0.22f, sl_seg(t,10200,11300))); }
+            else if (t < 11700) { float p = sl_seg(t,11300,11700); oy += sl_lerp(16,-2, sl_eo(p)); open = fmaxf(open, sl_lerp(0.22f,0.78f, sl_eo(p))); }
+            else                { float p = sl_seg(t,11700,13000); oy += sl_lerp(-2,10, p);        open = fminf(open, sl_lerp(0.78f,0.40f, sl_eo(p))); }
+        }
+        const int16_t lid = (int16_t)(240.0f * (1.0f - sl_clamp(open, 0.f, 1.f)));
+        EyePose p = { STYLE_RECT, 0, (int16_t)oy, EYE_W, EYE_H, (uint8_t)lid };
+        eyes::scriptPose(p, 0);              // 逐帧直驱（不整区清屏）
+        sleepClosed = false;
+    } else {                                  // 已合眼：睡着→熟睡（闭眼弧 + 呼吸）
+        if (!sleepClosed) { sleepClosed = true; sleepStage = SLEEP_ASLEEP; eyes::setPose(POSE_DOZE, RIG_BREATH2, true); }
+        if (se >= SLP_DEEP_AT && sleepStage != SLEEP_DEEP) { sleepStage = SLEEP_DEEP; eyes::setPose(POSE_DEEPSLEEP, RIG_BREATH2, false); }
+    }
+}
+
+// ── 唤醒：复位困意/脚本，回普通轮播（唤醒花絮覆盖层 = M4b-2）──
+static void triggerWake(uint32_t now) {
+    if (sleepScriptMs != 0) {
+        eyes::setPose(POSE_SHUT, RIG_BREATH, true);   // 闭眼矩形起手，平滑睁开
+    }
+    mood::resetSleepiness();
+    sleepStage = SLEEP_AWAKE;
+    sleepScriptMs = 0;
+    sleepInited = false;
+    sleepClosed = false;
+    idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
+}
 } // namespace
 
 namespace monitor {
@@ -237,13 +310,29 @@ void init() {
 
 void tick(uint32_t now) {
     const bool active = (s_state == MON_THINKING || s_state == MON_WORKING);
-    bool moodChanged = mood::update(now, active, /*sleeping=*/false);
-    if (moodChanged && s_state == MON_IDLE && !idleShowingOther) {
-        // 心情变了且正处普通 hub：缩短停留，下次轮播即用新心情池
-        idlePhaseMs = (now > 10000UL) ? (now - 10000UL) : 0;
+    const bool sleeping = (s_state == MON_IDLE && sleepStage >= SLEEP_ASLEEP);
+    bool moodChanged = mood::update(now, active, sleeping);
+
+    // —— 临时调试自动唤醒：熟睡满 8s 自醒，便于真机看完整 睡→醒→再睡 循环。M6 接 /status 后删除。——
+    if (s_state == MON_IDLE && sleepStage == SLEEP_DEEP && sleepScriptMs != 0
+        && (now - sleepScriptMs) > (SLP_DEEP_AT + 8000)) {
+        triggerWake(now);
     }
-    checkIdleRotation(now);
-    behaviorTick(now);
+
+    // 困意到阈值 → 起入睡脚本
+    if (s_state == MON_IDLE && sleepScriptMs == 0 && mood::sleepiness() >= SLEEP_DROWSY_AT) {
+        sleepScriptMs = now; sleepStage = SLEEP_DROWSY; sleepInited = false; sleepClosed = false;
+        s_idleExpr = IDLE_NORMAL;
+    }
+
+    if (s_state == MON_IDLE && sleepScriptMs != 0) {
+        tickSleep(now);                 // 入睡/睡眠中：脚本接管眼睛
+    } else {
+        if (moodChanged && s_state == MON_IDLE && !idleShowingOther)
+            idlePhaseMs = (now > 10000UL) ? (now - 10000UL) : 0;
+        checkIdleRotation(now);         // 清醒：M4a 轮播
+        behaviorTick(now);
+    }
 }
 
 } // namespace monitor
