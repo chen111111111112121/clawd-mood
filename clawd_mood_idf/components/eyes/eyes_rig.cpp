@@ -133,5 +133,6 @@ void setPose(const EyePose& p, uint8_t flags, bool snap) {
 void setWinkRight(bool on)      { s_winkRight = on; }
 void setBgColor(uint16_t color) { s_bgColor = color; }
 void setSpeed(uint8_t s)        { s_speed = s; }
+bool inTransition()             { return rig.trans != 0; }
 
 } // namespace eyes

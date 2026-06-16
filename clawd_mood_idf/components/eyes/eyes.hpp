@@ -24,4 +24,7 @@ void setBgColor(uint16_t color565);
 // 动画速度档：1=慢 2=正常(默认) 3=快。
 void setSpeed(uint8_t s);
 
+// 是否正处于样式切换的闭眼→睁眼过渡中（行为脚本据此暂停推姿态）。
+bool inTransition();
+
 } // namespace eyes
