@@ -121,7 +121,7 @@ const uint8_t MOOD_COZY_POOL[]     = { IDLE_HEART, IDLE_LOVE, IDLE_GIGGLE, IDLE_
 #define MOOD_FOCUSED_WINDOW_MS 180000UL  // 最近3分钟有活动→专注
 
 // ── 睡眠节律:困意累积(idle 涨/活动清零)到阈值后触发入睡脚本 ──────
-#define SLEEPINESS_PER_MIN     10.0f    // 基准困意速率(精力中等);测试可临时调 60 加速
+#define SLEEPINESS_PER_MIN     30.0f    // 基准困意速率(精力中等);测试可临时调 60 加速
 #define SLEEPINESS_EF_HI       0.6f    // energy=100 时速率系数(精神,扛困)
 #define SLEEPINESS_EF_LO       1.6f    // energy=0   时速率系数(累瘫,秒睡)
 #define SLEEP_DROWSY_AT        25.0f   // 困意≥:触发入睡脚本(先打哈欠再入睡) ~5min
