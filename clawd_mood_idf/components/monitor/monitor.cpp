@@ -1122,7 +1122,29 @@ static void drawMeetingScene(uint32_t now) {
         lastActive = active;
     }
 }
-static void drawToiletScene (uint32_t now){ (void)now; }
+// 上厕所中:WC 门牌轻浮 + 悠闲口哨音符升起(各自脏区重画)。眼睛由 presenceTickEyes 处理(笑眯眼)。
+static void drawToiletScene(uint32_t now) {
+    auto& g = display::gfx();
+    // WC 门牌(随 sin 上下浮 ~3px)
+    static int16_t lastSy = -999;
+    const int16_t sw=44, sh=28, sx=120-22;
+    const int16_t syf = 22 + (int16_t)(sinf(now/1100.0f)*3);
+    if (syf != lastSy) {
+        if (lastSy != -999) g.fillRect(sx-1, lastSy-1, sw+2, sh+2, OV_BG);   // 擦旧
+        g.fillRoundRect(sx, syf, sw, sh, 7, OV_WHITE);
+        g.setTextColor(OV_BG); g.setTextSize(2); g.setCursor(sx+6, syf+7); g.print("WC");
+        g.setTextSize(1);
+        lastSy = syf;
+    }
+    // 口哨音符(右侧升起循环;每帧擦旧画新)
+    static int16_t pnx=-999, pny=-999;
+    const float t = (now % 1900) / 1900.0f;
+    const int16_t nx = 196 + (int16_t)(sinf(t*6)*4), ny = 150 - (int16_t)(t*70);
+    if (pnx != -999) g.fillRect(pnx-1, pny-13, 10, 20, OV_BG);   // 擦旧音符包围盒
+    g.fillRect(nx, ny, 6, 4, OV_WHITE);            // 符头
+    g.fillRect(nx+5, ny-12, 2, 14, OV_WHITE);      // 符干
+    pnx = nx; pny = ny;
+}
 static void drawSolderScene (uint32_t now){ (void)now; }
 static void drawRestScene   (uint32_t now){ (void)now; }
 static void drawPresenceScene(uint32_t now) {
