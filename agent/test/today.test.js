@@ -29,6 +29,15 @@ test('计数:会话=SessionStart,提问=UserPromptSubmit/beforeSubmitPrompt', ()
   assert.strictEqual(r.tool, 'cc'); // 出现最多
 });
 
+test('计数:Cursor 的 sessionStart 也算会话', () => {
+  const r = aggregateEvents([
+    { ts: at(0), tool: 'cursor', event: 'sessionStart' },
+    { ts: at(1), tool: 'cursor', event: 'beforeSubmitPrompt' },
+  ]);
+  assert.strictEqual(r.sessions, 1);
+  assert.strictEqual(r.asks, 1);
+});
+
 test('活跃段:>20min 间隙切段,扣间隙得真实活跃时长', () => {
   const r = aggregateEvents([
     { ts: at(0),  tool: 'cc', event: 'UserPromptSubmit' },  // 段1 09:00

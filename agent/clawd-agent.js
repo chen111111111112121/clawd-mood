@@ -20,7 +20,7 @@ const DEFAULT_TOOLS = [
 ];
 
 const IDLE_GAP_MS = 20 * 60 * 1000;                                   // 活跃段空闲阈值
-const SESSION_EVENTS = new Set(['SessionStart']);
+const SESSION_EVENTS = new Set(['SessionStart', 'sessionStart']);
 const ASK_EVENTS = new Set(['UserPromptSubmit', 'beforeSubmitPrompt']); // 兼容 cc/cursor
 
 function configDir() {
