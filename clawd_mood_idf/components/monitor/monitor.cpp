@@ -1247,12 +1247,18 @@ static void drawRestScene(uint32_t now) {
         pn[s][0]=nx; pn[s][1]=ny;
     }
 
-    // 咖啡蒸汽(每帧擦带+重画波浪;带在杯口上方 y136..180,不碰杯/耳机/眼)
-    const int16_t cx=130, cy=180;
-    g.fillRect(cx+6, cy-44, 34, 44, OV_BG);
-    for (int s=0;s<2;s++){ int16_t lx=0,ly=0;
-        for (int k=0;k<=12;k++){ int16_t yy=cy-4-k*3; int16_t xx=cx+12+s*11+(int16_t)(sinf(now/360.0f + s*1.4f + k*0.55f)*4);
-            if (k>0) { g.drawLine(lx,ly,xx,yy,C_STEAM); } lx=xx; ly=yy; } }
+    // 咖啡蒸汽:小 sprite 离屏合成两缕波浪后一次推屏 → 无闪(同实验室烟丝手法,避免每帧擦带闪烁)
+    { const int16_t RX=134, RY=136, RW=34, RH=44;        // 杯口上方一柱,避开杯/耳机/眼
+      lgfx::LGFX_Sprite cv(&g); cv.setColorDepth(16);
+      if (cv.createSprite(RW, RH)) {
+          cv.fillScreen(OV_BG);
+          const int16_t cx=130, cy=180;
+          for (int s=0;s<2;s++){ int16_t lx=0,ly=0;
+              for (int k=0;k<=12;k++){ int16_t yy=(int16_t)(cy-4-k*3)-RY; int16_t xx=(int16_t)(cx+12+s*11+(int16_t)(sinf(now/360.0f + s*1.4f + k*0.55f)*4))-RX;
+                  if (k>0) { cv.drawLine(lx,ly,xx,yy,C_STEAM); } lx=xx; ly=yy; } }
+          cv.pushSprite(RX, RY);
+          cv.deleteSprite();
+      } }
 }
 static void drawPresenceScene(uint32_t now) {
     switch (s_presence) {
