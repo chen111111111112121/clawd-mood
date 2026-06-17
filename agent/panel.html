@@ -94,6 +94,7 @@
     <div class="navlabel">概览</div>
     <nav class="nav">
       <a class="on" data-page="today"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 17s-5.5-3.6-5.5-7.5A3 3 0 0 1 10 7a3 3 0 0 1 5.5 2.5C15.5 13.4 10 17 10 17z"/></svg>今日陪伴</a>
+      <a data-page="presence"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg>状态</a>
     </nav>
     <div class="navlabel">设置</div>
     <nav class="nav">
@@ -110,6 +111,12 @@
     <section class="page on" id="page-today">
       <div class="head"><h1>今日陪伴</h1><div class="date" id="today-date"></div></div>
       <div id="today-body"></div>
+    </section>
+
+    <section class="page" id="page-presence">
+      <div class="head"><h1>状态</h1></div>
+      <div class="sub">手动状态牌：设备常驻显示，不被 AI 事件打断。「工作中」= 交还自动(听 Claude Code)。</div>
+      <div id="presence"></div>
     </section>
 
     <section class="page" id="page-bind">
@@ -196,6 +203,37 @@
       el.onclick = () => setActive(t.id);
       box.appendChild(el);
     });
+    if (typeof s.presence === 'string' && s.presence !== curPresence) { curPresence = s.presence; }
+    renderPresence();
+  }
+  const PRESENCE = [
+    { id:'auto',    name:'工作中',  sub:'交还自动 · 听 AI 活动' },
+    { id:'meeting', name:'开会中',  sub:'盯笔记本视频会议' },
+    { id:'toilet',  name:'上厕所中',sub:'稍等片刻' },
+    { id:'solder',  name:'实验室中',sub:'焊板子 · 专注中' },
+    { id:'rest',    name:'休息中',  sub:'听歌喝咖啡' },
+  ];
+  let curPresence = 'auto';
+  function renderPresence(){
+    const box = document.getElementById('presence'); box.innerHTML='';
+    PRESENCE.forEach((p)=>{
+      const on = curPresence === p.id;
+      const el = document.createElement('div');
+      el.className = 'tool' + (on ? ' on' : '');
+      el.innerHTML = `<span class="radio"></span>
+        <span><div class="name">${p.name}</div><div class="meta">${p.sub}</div></span>`;
+      el.onclick = () => setPresence(p.id);
+      box.appendChild(el);
+    });
+  }
+  async function setPresence(id){
+    curPresence = id; renderPresence();
+    try{
+      const r = await (await fetch('/device/presence',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:id})})).json();
+      if(!r.ok){ const box=document.getElementById('presence');
+        const tip=document.createElement('div'); tip.className='sub'; tip.style.color='var(--coral-deep)';
+        tip.textContent='设备不可达，已记录选择（设备恢复后重选生效）'; box.appendChild(tip); }
+    }catch(_){}
   }
   async function setActive(tool){
     await fetch('/active',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool})});
@@ -210,7 +248,7 @@
     document.getElementById('devstat').textContent = r.ok?'设备已连接':'设备不可达';
   }
 
-  (async () => { await loadBind(); loadToday(); testDev(); })();
+  (async () => { await loadBind(); renderPresence(); loadToday(); testDev(); })();
   setInterval(loadBind, 5000);
   setInterval(loadToday, 30000);
 </script>
