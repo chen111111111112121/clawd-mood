@@ -512,6 +512,9 @@ static void applyPresencePending(uint32_t now) {
         sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
         s_state = MON_IDLE;
         applyExpression(true);
+    } else {
+        // 进场:标脏区,确保 fillScreen 抹掉眼睛后这帧会重画(随后 presenceTickEyes 覆盖为状态牌姿态)
+        eyes::setPose(POSE_NORMAL, 0, true);
     }
     (void)now;
 }
