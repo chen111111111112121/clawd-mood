@@ -28,6 +28,8 @@
 
 启动控制台：`node agent/clawd-agent.js`，浏览器开 `http://127.0.0.1:6624` 单选当前工具。
 
+hook 在门控通过后，会把事件以 `{ts,tool,event}` 追加到 `~/.clawd-mood/events-YYYY-MM-DD.jsonl`（按天、非阻塞、写失败静默），供 PC 控制台「今日陪伴」页统计。修改仓库内 `clawd-hook.js` 后需重跑 `install-global.ps1` 同步全局副本。
+
 ## 工具语义（act/info）
 
 `PreToolUse` / `PostToolUse` 事件会额外附带工具语义：
