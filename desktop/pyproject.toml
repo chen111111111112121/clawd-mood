@@ -1,0 +1,25 @@
+[project]
+name = "clawd-mochi-desktop"
+version = "0.1.0"
+description = "Clawd Mochi 桌面伴侣上位机"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.6",
+    "zeroconf>=0.131",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.gui-scripts]
+clawd-mochi = "clawd_mochi.ui.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["clawd_mochi*"]
