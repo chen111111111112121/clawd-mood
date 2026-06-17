@@ -1193,7 +1193,55 @@ static void drawSolderScene(uint32_t now) {
             g.drawLine((int)(jx+cosf(a)*4),(int)(201+sinf(a)*4),(int)(jx+cosf(a)*10),(int)(201+sinf(a)*10), OV_WHITE); }
     }
 }
-static void drawRestScene   (uint32_t now){ (void)now; }
+// 休息中:咖啡杯(静态) + 每帧重画 耳机(被音符擦除啃到,故每帧补)→音符→蒸汽。眼睛由 presenceTickEyes 处理(睁眼点头)。
+static void drawRestScene(uint32_t now) {
+    auto& g = display::gfx();
+    const uint16_t C_BAND=rgb565(43,47,58), C_HI=rgb565(77,85,112),
+                   C_PAD=rgb565(34,39,50), C_PADIN=rgb565(59,66,82), C_STEAM=rgb565(150,150,150);
+
+    if (s_presDrawn != (int8_t)PRES_REST) {              // 进场:仅静态咖啡杯(音符在边缘/蒸汽在杯口上方,都不碰它)
+        const int16_t cx=130, cy=180, cw=36, ch=24;
+        g.drawLine(cx,cy, cx+cw,cy, OV_WHITE); g.drawLine(cx+cw,cy, cx+cw-5,cy+ch, OV_WHITE);
+        g.drawLine(cx+cw-5,cy+ch, cx+5,cy+ch, OV_WHITE); g.drawLine(cx+5,cy+ch, cx,cy, OV_WHITE);
+        g.drawCircle(cx+cw+4, cy+8, 7, OV_WHITE);        // 把手
+    }
+
+    // 音符:先擦上一帧两音符包围盒(可能啃到耳机,随后整副耳机重画补回)
+    static int16_t pn[2][2] = {{-999,-999},{-999,-999}};
+    for (int s=0;s<2;s++) if (pn[s][0] != -999) g.fillRect(pn[s][0]-1, pn[s][1]-13, 14, 20, OV_BG);
+
+    // 头戴耳机(每帧重画):头梁(二次贝塞尔取 12 段连线,竖直方向铺粗)+ 两耳罩
+    {
+        auto band=[&](int16_t x0,int16_t y0,int16_t cxp,int16_t cyp,int16_t x2,int16_t y2,int w,uint16_t c){
+            int16_t lx=x0,ly=y0;
+            for(int i=1;i<=12;i++){ float t=i/12.0f, mt=1.0f-t;
+                int16_t X=(int16_t)(mt*mt*x0+2*mt*t*cxp+t*t*x2), Y=(int16_t)(mt*mt*y0+2*mt*t*cyp+t*t*y2);
+                for(int o=-w/2;o<=w/2;o++) g.drawLine(lx,ly+o,X,Y+o,c);
+                lx=X; ly=Y; }
+        };
+        band(13,48,120,-6,227,48,11,C_BAND);             // 头梁
+        band(20,46,120, 2,220,46, 3,C_HI);               // 高光
+        g.fillRoundRect(0,38,28,44,10,C_PAD);   g.fillRoundRect(212,38,28,44,10,C_PAD);   // 耳罩
+        g.fillRoundRect(5,45,18,30,7,C_PADIN);  g.fillRoundRect(217,45,18,30,7,C_PADIN);
+    }
+
+    // 音符(两侧耳罩升起;画在耳机之上)
+    const struct { int16_t bx; int8_t dir; } NS[2] = {{16,-1},{224,1}};
+    for (int s=0;s<2;s++){
+        const float t = ((now + (s? 1100u:0u)) % 2200) / 2200.0f;
+        const int16_t nx = NS[s].bx + NS[s].dir*(int16_t)(6+t*10) + (int16_t)(sinf(t*6)*3);
+        const int16_t ny = 58 - (int16_t)(t*52);
+        g.fillRect(nx, ny, 6, 4, OV_WHITE); g.fillRect(nx+5, ny-12, 2, 14, OV_WHITE); g.fillRect(nx+5, ny-12, 7, 3, OV_WHITE);
+        pn[s][0]=nx; pn[s][1]=ny;
+    }
+
+    // 咖啡蒸汽(每帧擦带+重画波浪;带在杯口上方 y136..180,不碰杯/耳机/眼)
+    const int16_t cx=130, cy=180;
+    g.fillRect(cx+6, cy-44, 34, 44, OV_BG);
+    for (int s=0;s<2;s++){ int16_t lx=0,ly=0;
+        for (int k=0;k<=12;k++){ int16_t yy=cy-4-k*3; int16_t xx=cx+12+s*11+(int16_t)(sinf(now/360.0f + s*1.4f + k*0.55f)*4);
+            if (k>0) g.drawLine(lx,ly,xx,yy,C_STEAM); lx=xx; ly=yy; } }
+}
 static void drawPresenceScene(uint32_t now) {
     switch (s_presence) {
         case PRES_MEETING: drawMeetingScene(now); break;
