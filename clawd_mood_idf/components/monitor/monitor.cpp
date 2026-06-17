@@ -465,38 +465,6 @@ static void applyPendingState(uint32_t now) {
     }
 }
 
-// 消费 /presence pending：切换时整屏清一次、复位场景缓存；切回 auto 恢复正常 Monitor
-static void applyPresencePending(uint32_t now) {
-    if (!s_presPending) return;
-    char s[12]; strncpy(s, s_presPendS, sizeof(s)); s[sizeof(s)-1] = 0;
-    s_presPending = false;
-    uint8_t np = parsePresence(s);
-    if (np == s_presence) return;
-    s_presence = np;
-    display::gfx().fillScreen(OV_BG);
-    s_presDrawn = -1;
-    if (np == PRES_NONE) {
-        idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
-        sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
-        s_state = MON_IDLE;
-        applyExpression(true);
-    }
-    (void)now;
-}
-
-// 状态牌期间每帧设眼睛姿态（scriptPose 逐帧直驱）
-static void presenceTickEyes(uint32_t now) {
-    EyePose p = POSE_NORMAL;
-    switch (s_presence) {
-        case PRES_MEETING: p = {STYLE_RECT, (int16_t)(sinf(now/1500.0f)*4), 14, EYE_W, 36, 60}; break;
-        case PRES_TOILET:  p = {STYLE_ARC,  (int16_t)(sinf(now/900.0f)*5),   6, 30, 30,  0}; break;
-        case PRES_SOLDER:  p = {STYLE_RECT, (int16_t)(sinf(now/220.0f)*4 + sinf(now/90.0f)*1.5f), 18, EYE_W, 24, 80}; break;
-        case PRES_REST:    p = {STYLE_RECT, (int16_t)(sinf(now/960.0f)*3), (int16_t)(sinf(now/480.0f)*4), EYE_W, EYE_H, 0}; break;
-        default: break;
-    }
-    eyes::scriptPose(p, 0);
-}
-
 // ── thinking/working 30s/3min 无新事件自动回 idle（移植自 .ino checkStatusTimeout）──
 static void checkStatusTimeout(uint32_t now) {
     if (lastStatusMs == 0) return;
@@ -528,6 +496,38 @@ constexpr uint16_t C_DIMGRN = rgb565(18,  92,  40);
 
 // 矩形结构(供 eraseRectOutside 局部使用)
 struct OvRect { int16_t x, y, w, h; bool valid; };
+
+// 消费 /presence pending：切换时整屏清一次、复位场景缓存；切回 auto 恢复正常 Monitor
+static void applyPresencePending(uint32_t now) {
+    if (!s_presPending) return;
+    char s[12]; strncpy(s, s_presPendS, sizeof(s)); s[sizeof(s)-1] = 0;
+    s_presPending = false;
+    uint8_t np = parsePresence(s);
+    if (np == s_presence) return;
+    s_presence = np;
+    display::gfx().fillScreen(OV_BG);
+    s_presDrawn = -1;
+    if (np == PRES_NONE) {
+        idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
+        sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
+        s_state = MON_IDLE;
+        applyExpression(true);
+    }
+    (void)now;
+}
+
+// 状态牌期间每帧设眼睛姿态（scriptPose 逐帧直驱）
+static void presenceTickEyes(uint32_t now) {
+    EyePose p = POSE_NORMAL;
+    switch (s_presence) {
+        case PRES_MEETING: p = {STYLE_RECT, (int16_t)(sinf(now/1500.0f)*4), 14, EYE_W, 36, 60}; break;
+        case PRES_TOILET:  p = {STYLE_ARC,  (int16_t)(sinf(now/900.0f)*5),   6, 30, 30,  0}; break;
+        case PRES_SOLDER:  p = {STYLE_RECT, (int16_t)(sinf(now/220.0f)*4 + sinf(now/90.0f)*1.5f), 18, EYE_W, 24, 80}; break;
+        case PRES_REST:    p = {STYLE_RECT, (int16_t)(sinf(now/960.0f)*3), (int16_t)(sinf(now/480.0f)*4), EYE_W, EYE_H, 0}; break;
+        default: break;
+    }
+    eyes::scriptPose(p, 0);
+}
 
 // ── 位图与小图形(本地副本,均画在 g 上) ───────────────────────────
 const uint8_t HEART5[5] = { 0b01010, 0b11111, 0b11111, 0b01110, 0b00100 };
