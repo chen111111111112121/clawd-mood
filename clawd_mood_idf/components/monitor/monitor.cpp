@@ -67,6 +67,21 @@ uint8_t  tickerScroll    = 0;
 uint32_t tickerScrollMs  = 0;
 bool     tickerVisible   = false;
 
+// ── 手动状态牌 presence ──
+enum { PRES_NONE=0, PRES_MEETING, PRES_TOILET, PRES_SOLDER, PRES_REST };
+uint8_t s_presence = PRES_NONE;
+volatile bool s_presPending = false;   // HTTP task 写、render task 消费
+char    s_presPendS[12]     = "";
+int8_t  s_presDrawn         = -1;      // 场景上一帧已画的 presence(变化→静态道具重画)
+
+uint8_t parsePresence(const char* s) {
+    if (!strcmp(s, "meeting")) return PRES_MEETING;
+    if (!strcmp(s, "toilet"))  return PRES_TOILET;
+    if (!strcmp(s, "solder"))  return PRES_SOLDER;
+    if (!strcmp(s, "rest"))    return PRES_REST;
+    return PRES_NONE;
+}
+
 // ── 状态助手（移植自 .ino parseAct/actVerb/setTickerText）──
 uint8_t parseAct(const char* a) {
     if (!strcmp(a, "read"))  return ACT_READ;
@@ -448,6 +463,38 @@ static void applyPendingState(uint32_t now) {
             display::backlight(false);
             break;
     }
+}
+
+// 消费 /presence pending：切换时整屏清一次、复位场景缓存；切回 auto 恢复正常 Monitor
+static void applyPresencePending(uint32_t now) {
+    if (!s_presPending) return;
+    char s[12]; strncpy(s, s_presPendS, sizeof(s)); s[sizeof(s)-1] = 0;
+    s_presPending = false;
+    uint8_t np = parsePresence(s);
+    if (np == s_presence) return;
+    s_presence = np;
+    display::gfx().fillScreen(OV_BG);
+    s_presDrawn = -1;
+    if (np == PRES_NONE) {
+        idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
+        sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
+        s_state = MON_IDLE;
+        applyExpression(true);
+    }
+    (void)now;
+}
+
+// 状态牌期间每帧设眼睛姿态（scriptPose 逐帧直驱）
+static void presenceTickEyes(uint32_t now) {
+    EyePose p = POSE_NORMAL;
+    switch (s_presence) {
+        case PRES_MEETING: p = {STYLE_RECT, (int16_t)(sinf(now/1500.0f)*4), 14, EYE_W, 36, 60}; break;
+        case PRES_TOILET:  p = {STYLE_ARC,  (int16_t)(sinf(now/900.0f)*5),   6, 30, 30,  0}; break;
+        case PRES_SOLDER:  p = {STYLE_RECT, (int16_t)(sinf(now/220.0f)*4 + sinf(now/90.0f)*1.5f), 18, EYE_W, 24, 80}; break;
+        case PRES_REST:    p = {STYLE_RECT, (int16_t)(sinf(now/960.0f)*3), (int16_t)(sinf(now/480.0f)*4), EYE_W, EYE_H, 0}; break;
+        default: break;
+    }
+    eyes::scriptPose(p, 0);
 }
 
 // ── thinking/working 30s/3min 无新事件自动回 idle（移植自 .ino checkStatusTimeout）──
@@ -1033,6 +1080,22 @@ void tickCelebrate(unsigned long now) {
     drawStarAt(sx[4 - i], BY + 15, sc, OV_WHITE);
   }
 }
+
+// ── 手动状态牌场景（P4–P7 填充道具，本期为空桩）──
+static void drawMeetingScene(uint32_t now){ (void)now; }
+static void drawToiletScene (uint32_t now){ (void)now; }
+static void drawSolderScene (uint32_t now){ (void)now; }
+static void drawRestScene   (uint32_t now){ (void)now; }
+static void drawPresenceScene(uint32_t now) {
+    switch (s_presence) {
+        case PRES_MEETING: drawMeetingScene(now); break;
+        case PRES_TOILET:  drawToiletScene(now);  break;
+        case PRES_SOLDER:  drawSolderScene(now);  break;
+        case PRES_REST:    drawRestScene(now);    break;
+        default: break;
+    }
+    s_presDrawn = (int8_t)s_presence;
+}
 } // namespace
 
 namespace monitor {
@@ -1087,6 +1150,12 @@ void init() {
 }
 
 void tick(uint32_t now) {
+    applyPresencePending(now);
+    if (s_presence != PRES_NONE) {     // 状态牌:冻结自动、丢弃 /status、按牌设眼
+        s_pending = false;
+        presenceTickEyes(now);
+        return;
+    }
     applyPendingState(now);     // 先消费 HTTP task 投递的 /status 状态（单消费者）
     checkStatusTimeout(now);    // thinking/working 久无新事件自动回 idle
 
@@ -1111,6 +1180,7 @@ void tick(uint32_t now) {
 }
 
 void drawOverlays(uint32_t now) {
+    if (s_presence != PRES_NONE) { drawPresenceScene(now); return; }
     idleNewOverlay(now);       // idle 表情飘字/精灵(自带 active 守卫)
     happyStars(now);           // 开心眼偶发星
     tickYawnMouth(now);        // 入睡 O 嘴
@@ -1131,5 +1201,12 @@ void setState(const char* s, const char* act, const char* info) {
     strncpy(s_pendInfo, info ? info : "", sizeof(s_pendInfo)); s_pendInfo[sizeof(s_pendInfo)-1] = 0;
     s_pending = true;   // 最后置旗标：消费者读到 true 时三个缓冲已就绪
 }
+
+// /presence 推送：仅写待应用缓冲，由 render task 的 tick() 消费（线程安全）。
+void setPresence(const char* s) {
+    strncpy(s_presPendS, s ? s : "", sizeof(s_presPendS)); s_presPendS[sizeof(s_presPendS)-1] = 0;
+    s_presPending = true;
+}
+bool presenceActive() { return s_presence != PRES_NONE; }
 
 } // namespace monitor

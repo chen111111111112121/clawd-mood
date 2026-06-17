@@ -43,4 +43,8 @@ void drawOverlays(uint32_t nowMs);
 // 由 render task 的 tick() 消费），故可在 HTTP task 线程直接调。act/info 可为 nullptr/""。
 void setState(const char* s, const char* act, const char* info);
 
+// 手动状态牌:s ∈ {auto,meeting,toilet,solder,rest}。线程安全(仅写 pending,render task 消费)。
+void setPresence(const char* s);
+bool presenceActive();   // 当前是否在状态牌(≠auto)
+
 } // namespace monitor

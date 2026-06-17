@@ -139,6 +139,22 @@ esp_err_t h_status(httpd_req_t* req) {
     return ESP_OK;
 }
 
+esp_err_t h_presence(httpd_req_t* req) {
+    char q[64] = {0}, s[16] = {0};
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK)
+        httpd_query_key_value(q, "s", s, sizeof(s));
+    if (!s[0]) {
+        httpd_resp_set_status(req, "400 Bad Request");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"e\":1}");
+        return ESP_OK;
+    }
+    monitor::setPresence(s);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"ok\":1}");
+    return ESP_OK;
+}
+
 // 从 NVS 读 ssid/pass(旧 Arduino 版同 namespace "clawd" 同键)。返回是否有 ssid。
 bool load_creds(char* ssid, size_t ssz, char* pass, size_t psz) {
     nvs_handle_t h;
@@ -258,11 +274,13 @@ void http_start() {
     }
     httpd_uri_t u_status = { .uri = "/status", .method = HTTP_GET, .handler = h_status, .user_ctx = nullptr };
     httpd_register_uri_handler(srv, &u_status);
+    httpd_uri_t u_presence = { .uri = "/presence", .method = HTTP_GET, .handler = h_presence, .user_ctx = nullptr };
+    httpd_register_uri_handler(srv, &u_presence);
     httpd_uri_t u_root = { .uri = "/", .method = HTTP_GET, .handler = h_root, .user_ctx = nullptr };
     httpd_register_uri_handler(srv, &u_root);
     httpd_uri_t u_save = { .uri = "/wifi/save", .method = HTTP_GET, .handler = h_wifi_save, .user_ctx = nullptr };
     httpd_register_uri_handler(srv, &u_save);
-    ESP_LOGI(TAG, "HTTP up: / /status /wifi/save");
+    ESP_LOGI(TAG, "HTTP up: / /status /presence /wifi/save");
 }
 
 bool sta_connected() { return s_staConnected; }
