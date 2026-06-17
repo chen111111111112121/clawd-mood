@@ -7,6 +7,7 @@ from clawd_mochi.core import device
 from clawd_mochi.ui.today_page import TodayPage
 from clawd_mochi.ui.bind_page import BindPage
 from clawd_mochi.ui.presence_page import PresencePage
+from clawd_mochi.ui.settings_page import SettingsPage
 
 
 class MainWindow(QWidget):
@@ -29,12 +30,14 @@ class MainWindow(QWidget):
         self.today = TodayPage()
         self.presence = PresencePage()
         self.bind = BindPage()
-        for w in (self.today, self.presence, self.bind):
+        self.settings = SettingsPage()
+        for w in (self.today, self.presence, self.bind, self.settings):
             self._pages.addWidget(w)
 
         self._nav_btns = []
         for i, (text, page) in enumerate([
-            ("今日陪伴", self.today), ("状态", self.presence), ("工具绑定", self.bind),
+            ("今日陪伴", self.today), ("状态", self.presence),
+            ("工具绑定", self.bind), ("设置", self.settings),
         ]):
             b = QPushButton(text)
             b.setCheckable(True)
