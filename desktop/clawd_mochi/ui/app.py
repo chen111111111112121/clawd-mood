@@ -1,27 +1,27 @@
 import sys
 
-from PySide6.QtGui import QIcon, QPixmap, QAction
+from PySide6.QtGui import QIcon, QAction
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 from clawd_mochi.ui.main_window import MainWindow
+from clawd_mochi.ui import theme, icons
 
 
-def _placeholder_icon() -> QIcon:
-    pm = QPixmap(32, 32)
-    pm.fill()  # 纯色占位图标；正式图标在打包计划中替换
-    return QIcon(pm)
+def _tray_icon() -> QIcon:
+    return QIcon(icons.pixmap("presence", 32, theme.CORAL_DEEP))
 
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Clawd Mochi")
+    app.setApplicationName("Mood")
+    app.setStyleSheet(theme.QSS)
     app.setQuitOnLastWindowClosed(False)  # 关窗后驻留托盘
 
     win = MainWindow()
     win.show()
 
-    tray = QSystemTrayIcon(_placeholder_icon(), app)
-    tray.setToolTip("Clawd Mochi 控制台")
+    tray = QSystemTrayIcon(_tray_icon(), app)
+    tray.setToolTip("Mood 控制台")
     menu = QMenu()
     act_show = QAction("打开控制台", app)
     act_show.triggered.connect(win.show)
