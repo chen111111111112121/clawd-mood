@@ -1360,8 +1360,10 @@ void tick(uint32_t now) {
     if (s_state == MON_IDLE && sleepScriptMs != 0) {
         tickSleep(now);                 // 入睡/睡眠中：脚本接管眼睛
     } else {
-        if (moodChanged && s_state == MON_IDLE && !idleShowingOther)
-            idlePhaseMs = (now > 10000UL) ? (now - 10000UL) : 0;
+        // 心情变→催一次轮播(把 NORMAL hold 当作已过)。仅在开机 10s 后:开机前 10s 若置 idlePhaseMs=0,
+        // checkIdleRotation 会走首帧分支 applyExpression(true)→zoneDirty 全清重画=普通眼反复闪。前 10s 让它自然 hold。
+        if (moodChanged && s_state == MON_IDLE && !idleShowingOther && now > 10000UL)
+            idlePhaseMs = now - 10000UL;
         checkIdleRotation(now);         // 清醒：M4a 轮播
         behaviorTick(now);
     }
