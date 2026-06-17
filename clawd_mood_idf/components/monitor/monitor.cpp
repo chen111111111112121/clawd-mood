@@ -512,8 +512,11 @@ static void applyPresencePending(uint32_t now) {
         sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
         s_state = MON_IDLE;
         applyExpression(true);
+    } else if (np == PRES_MEETING) {
+        // 开会:认真盯电脑——聚焦下视(收窄),交给 rig 自动眨眼/微扫视/呼吸+弹簧平滑(灵动流畅),不逐帧覆盖
+        eyes::setPose(EyePose{STYLE_RECT, 0, 14, EYE_W, 38, 0}, RIG_BLINK | RIG_BREATH | RIG_SACCADE, true);
     } else {
-        // 进场:标脏区,确保 fillScreen 抹掉眼睛后这帧会重画(随后 presenceTickEyes 覆盖为状态牌姿态)
+        // 其余:标脏区,确保 fillScreen 抹掉眼睛后这帧会重画(随后 presenceTickEyes 逐帧覆盖姿态)
         eyes::setPose(POSE_NORMAL, 0, true);
     }
     (void)now;
@@ -523,7 +526,7 @@ static void applyPresencePending(uint32_t now) {
 static void presenceTickEyes(uint32_t now) {
     EyePose p = POSE_NORMAL;
     switch (s_presence) {
-        case PRES_MEETING: p = {STYLE_RECT, (int16_t)(sinf(now/1500.0f)*4), 14, EYE_W, 36, 60}; break;
+        case PRES_MEETING: return;   // 眼睛由进场 setPose + rig(自动眨眼/微扫视/呼吸+弹簧平滑)驱动,不逐帧覆盖
         case PRES_TOILET:  p = {STYLE_ARC,  (int16_t)(sinf(now/900.0f)*5),   6, 30, 30,  0}; break;
         case PRES_SOLDER:  p = {STYLE_RECT, (int16_t)(sinf(now/220.0f)*4 + sinf(now/90.0f)*1.5f), 18, EYE_W, 24, 80}; break;
         case PRES_REST:    p = {STYLE_RECT, (int16_t)(sinf(now/960.0f)*3), (int16_t)(sinf(now/480.0f)*4), EYE_W, EYE_H, 0}; break;
