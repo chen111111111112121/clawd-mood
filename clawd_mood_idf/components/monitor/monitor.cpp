@@ -1085,7 +1085,38 @@ void tickCelebrate(unsigned long now) {
 }
 
 // ── 手动状态牌场景（P4–P7 填充道具，本期为空桩）──
-static void drawMeetingScene(uint32_t now){ (void)now; }
+// 开会中:认真盯笔记本(静态) + 视频会议宫格 + 发言者绿框轮换(动态)。眼睛由 presenceTickEyes 处理。
+static void drawMeetingScene(uint32_t now) {
+    auto& g = display::gfx();
+    const int16_t sx=64, sy=150, sw=112, sh=46;
+    const uint16_t C_BORD=rgb565(17,22,31), C_SCR=rgb565(11,27,51),
+                   C_TILE=rgb565(38,69,99), C_MAN=rgb565(159,182,207),
+                   C_SPK=rgb565(70,210,122), C_KB=rgb565(42,49,64), C_PAD=rgb565(58,65,80);
+    const int cols=3, rows=2, gp=4;
+    const int tw=(sw-gp*(cols+1))/cols, th=(sh-gp*(rows+1))/rows;
+    const int active = (int)((now/900) % (uint32_t)(cols*rows));
+    static int lastActive = -1;
+    auto tilePos = [&](int idx, int& tx, int& ty){ tx = sx+gp+(idx%cols)*(tw+gp); ty = sy+gp+(idx/cols)*(th+gp); };
+
+    if (s_presDrawn != (int8_t)PRES_MEETING) {        // 进场:静态笔记本 + 全部 tile + 键盘
+        g.fillRoundRect(sx-3, sy-3, sw+6, sh+6, 6, C_BORD);
+        g.fillRoundRect(sx, sy, sw, sh, 4, C_SCR);
+        for (int i=0;i<cols*rows;i++){ int tx,ty; tilePos(i,tx,ty);
+            g.fillRoundRect(tx,ty,tw,th,2,C_TILE);
+            g.fillCircle(tx+tw/2, ty+(int)(th*0.40f), (int)(th*0.19f), C_MAN);
+            g.fillRoundRect(tx+tw/2-(int)(tw*0.27f), ty+(int)(th*0.60f), (int)(tw*0.54f), (int)(th*0.36f), 2, C_MAN);
+        }
+        g.fillTriangle(sx-2,sy+sh+3, sx+sw+2,sy+sh+3, sx+sw+15,sy+sh+17, C_KB);
+        g.fillTriangle(sx-2,sy+sh+3, sx+sw+15,sy+sh+17, sx-15,sy+sh+17, C_KB);
+        g.fillRect(120-15, sy+sh+8, 30, 3, C_PAD);
+        lastActive = -1;
+    }
+    if (active != lastActive) {                        // 发言绿框:擦旧(画回 tile 底色)、描新
+        if (lastActive >= 0) { int tx,ty; tilePos(lastActive,tx,ty); g.drawRect(tx+1,ty+1,tw-2,th-2,C_TILE); }
+        int tx,ty; tilePos(active,tx,ty); g.drawRect(tx+1,ty+1,tw-2,th-2,C_SPK);
+        lastActive = active;
+    }
+}
 static void drawToiletScene (uint32_t now){ (void)now; }
 static void drawSolderScene (uint32_t now){ (void)now; }
 static void drawRestScene   (uint32_t now){ (void)now; }
