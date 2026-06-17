@@ -223,14 +223,7 @@ function startServer(port = DEFAULT_PORT) {
     }
     rs.writeHead(404); rs.end('not found');
   });
-  // 仅本机回环:控制台含陪伴数据+工具绑定,不暴露给局域网。
-  // 不向 listen 传 host(传 host 会令 server.address() 在同步 tick 返回 null,测试取端口失败),
-  // 改在连接层拒绝非回环来源,既保 sync 端口可读,又守住"只对本机开放"。
-  server.on('connection', (sock) => {
-    const ip = sock.remoteAddress || '';
-    if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) sock.destroy();
-  });
-  server.listen(port);
+  server.listen(port, '127.0.0.1');   // 仅绑本机回环:控制台含陪伴数据+工具绑定+状态控制,不暴露给局域网
   return server;
 }
 

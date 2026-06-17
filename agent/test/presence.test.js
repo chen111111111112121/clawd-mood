@@ -9,6 +9,12 @@ function tmpCfg() {
   process.env.CLAWD_CONFIG_DIR = dir;
   return dir;
 }
+function listen() {
+  return new Promise((resolve) => {
+    const server = startServer(0);
+    server.on('listening', () => resolve({ server, port: server.address().port }));
+  });
+}
 function post(port, body) {
   return new Promise((resolve) => {
     const data = JSON.stringify(body);
@@ -24,7 +30,7 @@ test('合法 state 写入 agent.json.presence 并尝试推设备', async () => {
   let hit = null;
   const dev = http.createServer((q, s) => { hit = q.url; s.end('ok'); }).listen(0);
   process.env.CLAWD_DEVICE_IP = `127.0.0.1:${dev.address().port}`;
-  const srv = startServer(0); const port = srv.address().port;
+  const { server: srv, port } = await listen();
   try {
     const r = await post(port, { state: 'meeting' });
     assert.strictEqual(r.status, 200);
@@ -35,7 +41,7 @@ test('合法 state 写入 agent.json.presence 并尝试推设备', async () => {
 
 test('非法 state → 400，不改 agent.json', async () => {
   const dir = tmpCfg();
-  const srv = startServer(0); const port = srv.address().port;
+  const { server: srv, port } = await listen();
   try {
     const r = await post(port, { state: 'foo' });
     assert.strictEqual(r.status, 400);
@@ -52,7 +58,7 @@ test('readConfig 缺 presence → 默认 auto', () => {
 test('设备不可达仍写入 presence（ok:false）', async () => {
   const dir = tmpCfg();
   process.env.CLAWD_DEVICE_IP = '127.0.0.1:1';
-  const srv = startServer(0); const port = srv.address().port;
+  const { server: srv, port } = await listen();
   try {
     const r = await post(port, { state: 'rest' });
     assert.strictEqual(r.status, 200);
