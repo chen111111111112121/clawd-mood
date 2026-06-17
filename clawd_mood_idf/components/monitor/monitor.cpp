@@ -1171,7 +1171,7 @@ static void drawSolderScene(uint32_t now) {
     // 烟丝(波浪上升)
     { int16_t lastX=0,lastY=0;
       for (int k=0;k<=18;k++){ int16_t yy=jy-6-k*3; int16_t xx=jx+(int16_t)(sinf(now/300.0f+k*0.5f)*(4+k*0.35f));
-        if (k>0) g.drawLine(lastX,lastY,xx,yy,C_SMOKE); lastX=xx; lastY=yy; } }
+        if (k>0) { g.drawLine(lastX,lastY,xx,yy,C_SMOKE); } lastX=xx; lastY=yy; } }
 
     // 烙铁(每帧重画,盖在烟之上):握把/护圈/银杆/锥尖朝下/发热。沿轴 T(jx,jy-2)→H(210,150)
     { const float Tx=jx, Ty=jy-2, Hx=210, Hy=150;
@@ -1240,7 +1240,7 @@ static void drawRestScene(uint32_t now) {
     g.fillRect(cx+6, cy-44, 34, 44, OV_BG);
     for (int s=0;s<2;s++){ int16_t lx=0,ly=0;
         for (int k=0;k<=12;k++){ int16_t yy=cy-4-k*3; int16_t xx=cx+12+s*11+(int16_t)(sinf(now/360.0f + s*1.4f + k*0.55f)*4);
-            if (k>0) g.drawLine(lx,ly,xx,yy,C_STEAM); lx=xx; ly=yy; } }
+            if (k>0) { g.drawLine(lx,ly,xx,yy,C_STEAM); } lx=xx; ly=yy; } }
 }
 static void drawPresenceScene(uint32_t now) {
     switch (s_presence) {
