@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Clawd Mochi 上位机 · 视觉 mockup</title>
+<style>
+  :root{
+    --bg1:#FBEFE0; --bg2:#F1DEC6; --shell:#FFFDFA; --side:#FBF2E7;
+    --line:#EEE0CE; --line2:#F3E8D9; --ink:#43342A; --muted:#9C8A78; --faint:#BCAB97;
+    --coral:#D97757; --coral-deep:#C4632F; --coral-soft:#FBEEE2;
+    --ok:#3FAE7A; --okbg:#E3F3EA; --bad:#E0705F; --badbg:#F7E2DD;
+    --cardsh:0 4px 16px rgba(150,95,55,.07);
+  }
+  *{box-sizing:border-box; -webkit-font-smoothing:antialiased}
+  body{ margin:0; min-height:100vh; color:var(--ink);
+    font:14px/1.6 ui-rounded,"Segoe UI",system-ui,sans-serif;
+    background:linear-gradient(160deg,#EAD9C4,#D9C3A6); display:grid; place-items:center; padding:30px; }
+
+  /* —— 桌面窗口外框（表明这是原生窗口，不是网页） —— */
+  .win{ width:980px; border-radius:14px; overflow:hidden; box-shadow:0 30px 80px rgba(90,55,30,.34);
+    border:1px solid rgba(120,80,50,.2); background:var(--shell); }
+  .titlebar{ height:38px; display:flex; align-items:center; gap:8px; padding:0 14px;
+    background:linear-gradient(#FBF1E4,#F3E5D2); border-bottom:1px solid var(--line); }
+  .traffic{ display:flex; gap:8px; }
+  .traffic i{ width:12px; height:12px; border-radius:50%; display:block; }
+  .traffic .r{ background:#ED6A5E } .traffic .y{ background:#F4BF50 } .traffic .g{ background:#61C554 }
+  .titlebar .tt{ font-size:12.5px; font-weight:700; color:var(--muted); margin-left:6px; }
+
+  .body{ display:flex; min-height:566px; }
+
+  /* —— 侧栏 —— */
+  .side{ width:208px; flex:0 0 auto; background:var(--side); border-right:1px solid var(--line);
+    padding:18px 13px; display:flex; flex-direction:column; }
+  .brand{ padding:4px 6px 18px; }
+  .lock{ display:flex; align-items:center; gap:11px; }
+  .wm{ font-size:27px; font-weight:900; letter-spacing:2px; line-height:1;
+    background:linear-gradient(155deg,#E8915F,#C4632F); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  /* A · 四格像素徽标（微软四方格 → 暖调像素屏隐喻） */
+  .emb{ width:38px; height:38px; border-radius:11px; flex:0 0 auto; display:grid; place-items:center;
+    background:linear-gradient(160deg,#E8915F,#C4632F); box-shadow:0 4px 11px rgba(196,99,47,.34); }
+  .emb svg{ width:23px; height:23px; }
+  /* B · 双 O 做眼睛 */
+  .wmeyes{ display:inline-flex; align-items:center; font-size:31px; font-weight:900; letter-spacing:1px; color:var(--coral-deep); padding:2px 0; }
+  .wmeyes .o{ width:.62em; height:.62em; border:.13em solid var(--coral-deep); border-radius:50%; margin:0 .05em; position:relative; display:inline-block;
+    transform-origin:center; animation:wblink 5.5s infinite; }
+  .wmeyes .o::after{ content:''; position:absolute; width:.18em; height:.18em; border-radius:50%; background:var(--coral-deep); left:50%; top:58%; transform:translate(-50%,-50%); }
+  .wmeyes .blush{ width:.22em; height:.22em; border-radius:50%; background:#F3B8A0; align-self:flex-end; margin:0 0 .2em .08em; }
+  @keyframes wblink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.12)}}
+  /* C · 圆章 monogram */
+  .badge{ width:38px; height:38px; border-radius:50%; display:grid; place-items:center; flex:0 0 auto;
+    background:#fff; border:2px solid var(--coral); color:var(--coral-deep); font-weight:900; font-size:18px; box-shadow:0 3px 9px rgba(196,99,47,.2); }
+  /* 字标方案对比条 */
+  .compare{ width:980px; margin-bottom:14px; background:rgba(255,253,250,.9); border:1px solid var(--line);
+    border-radius:14px; padding:13px 20px; display:flex; gap:34px; align-items:center; box-shadow:0 10px 30px rgba(90,55,30,.16); }
+  .compare .lbl{ font-size:12px; font-weight:800; color:var(--coral-deep); letter-spacing:.06em; }
+  .compare .opt{ display:flex; flex-direction:column; gap:8px; align-items:flex-start; }
+  .compare .opt small{ font-size:10.5px; color:var(--faint); font-weight:700; }
+  .navlabel{ font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint); font-weight:700; margin:10px 8px 6px; }
+  .nav button{ display:flex; align-items:center; gap:11px; width:100%; padding:10px 11px; border-radius:11px; margin-bottom:3px;
+    color:#6E5D4E; border:0; background:transparent; font:inherit; font-size:13.5px; font-weight:600; cursor:pointer; text-align:left; transition:.13s; }
+  .nav button svg{ width:18px; height:18px; opacity:.66; }
+  .nav button:hover{ background:#F5E8D8; }
+  .nav button.on{ background:var(--coral-soft); color:var(--coral-deep); box-shadow:inset 0 0 0 1px #F0D9C2; }
+  .nav button.on svg{ opacity:1; }
+  .foot{ margin-top:auto; padding:11px 12px; border-radius:13px; background:#FFFDFA; border:1px solid var(--line2); box-shadow:var(--cardsh); }
+  .foot .row{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600; }
+  .foot .dot{ width:9px; height:9px; border-radius:50%; }
+  .foot .dot.ok{ background:var(--ok); box-shadow:0 0 0 3px var(--okbg); }
+  .foot .dot.bad{ background:var(--bad); box-shadow:0 0 0 3px var(--badbg); }
+  .foot .ip{ font-size:11px; color:var(--faint); margin:5px 0 0; word-break:break-all; }
+  .foot button{ margin-top:9px; width:100%; font:inherit; font-size:12px; font-weight:700; color:var(--coral-deep);
+    background:var(--coral-soft); border:1px solid var(--line); border-radius:9px; padding:6px; cursor:pointer; }
+  .foot button:hover{ background:#F7E2CE; }
+
+  /* —— 主区 —— */
+  .main{ flex:1; padding:24px 30px 28px; min-width:0; background:
+    radial-gradient(120% 60% at 100% -10%, #FFF7EC 0%, transparent 50%); }
+  .head{ margin-bottom:18px; }
+  .head h1{ margin:0; font-size:23px; font-weight:800; letter-spacing:-.3px; }
+  .head .sub{ font-size:12.5px; color:var(--faint); margin-top:3px; }
+  .page{ display:none; } .page.on{ display:block; animation:fade .22s ease; }
+  @keyframes fade{from{opacity:0; transform:translateY(4px)}to{opacity:1; transform:none}}
+
+  .card{ background:var(--shell); border:1px solid var(--line); border-radius:16px; box-shadow:var(--cardsh); padding:18px 20px; }
+  .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:14px; }
+
+  /* 今日陪伴 hero */
+  .hero{ display:flex; align-items:center; justify-content:space-between; gap:24px; }
+  .hero .lead{ font-size:12px; color:var(--coral-deep); font-weight:700; }
+  .hero .time{ margin:7px 0 4px; font-weight:800; letter-spacing:-1.5px; line-height:1; }
+  .hero .time .v{ font-size:56px; } .hero .time .u{ font-size:24px; color:var(--coral); margin:0 8px 0 3px; }
+  .hero .meta{ font-size:12px; color:var(--faint); }
+  .mood{ width:78px; height:78px; border-radius:50%; flex:0 0 auto;
+    background:radial-gradient(circle at 38% 32%,#FBE7D2,#F1CBA8);
+    display:grid; place-items:center; box-shadow:inset 0 -5px 13px rgba(196,99,47,.18); }
+  .mood svg{ width:52px; height:52px; }
+  .mood .eye{ transform-origin:center; animation:blink 5s infinite; }
+  @keyframes blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.1)}}
+  .story{ margin-top:15px; padding-top:15px; border-top:1px solid var(--line2); font-size:13.5px; color:var(--muted); line-height:1.75; }
+  .story b{ color:var(--coral-deep); }
+  .tile .n{ font-size:30px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .tile .l{ font-size:12px; color:var(--muted); margin-top:8px; font-weight:600; }
+  .tile .sub{ font-size:11px; color:var(--faint); margin-top:2px; }
+
+  /* 列表行（presence / 工具 / 设置 通用） */
+  .rows{ margin-top:6px; display:flex; flex-direction:column; gap:10px; }
+  .row{ display:flex; align-items:center; gap:13px; padding:13px 15px; cursor:pointer;
+    border:1px solid var(--line); border-radius:14px; background:var(--shell); box-shadow:var(--cardsh); transition:.13s; }
+  .row:hover{ border-color:#E6CFB4; }
+  .row.on{ border-color:var(--coral); background:var(--coral-soft); }
+  .ricon{ width:38px; height:38px; border-radius:11px; flex:0 0 auto; display:grid; place-items:center;
+    background:#FBF1E5; border:1px solid var(--line2); }
+  .row.on .ricon{ background:#fff; border-color:#F0D2BB; }
+  .ricon svg{ width:21px; height:21px; color:var(--coral-deep); }
+  .rtext .name{ font-weight:700; font-size:14px; }
+  .rtext .meta{ font-size:11.5px; color:var(--faint); margin-top:1px; }
+  .radio{ margin-left:auto; width:19px; height:19px; border-radius:50%; border:2px solid #d8c6b0; flex:0 0 auto; position:relative; }
+  .row.on .radio{ border-color:var(--coral); }
+  .row.on .radio::after{ content:''; position:absolute; inset:3px; border-radius:50%; background:var(--coral); }
+  .pill{ margin-left:auto; font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; background:var(--okbg); color:#2E7D55; }
+  .pill.off{ background:#F1E6D6; color:var(--faint); }
+
+  /* 设置页 */
+  .field{ display:flex; align-items:center; gap:12px; margin:4px 0 16px; }
+  .field label{ font-size:13px; font-weight:600; color:#6E5D4E; }
+  .field input{ flex:1; font:inherit; font-size:13.5px; padding:9px 13px; border-radius:11px;
+    border:1px solid var(--line); background:#fff; color:var(--ink); }
+  .field input:focus{ outline:none; border-color:var(--coral); box-shadow:0 0 0 3px var(--coral-soft); }
+  .btn{ font:inherit; font-size:13px; font-weight:700; padding:9px 16px; border-radius:11px; cursor:pointer;
+    color:#fff; background:linear-gradient(160deg,#E0875F,#C4632F); border:0; box-shadow:0 3px 9px rgba(196,99,47,.26); }
+  .btn:hover{ filter:brightness(1.05); }
+  .btn[disabled]{ background:#EDE2D2; color:var(--faint); box-shadow:none; cursor:not-allowed; }
+  .toast{ margin-top:14px; font-size:13px; font-weight:600; padding:11px 14px; border-radius:12px;
+    background:var(--okbg); color:#2E7D55; border:1px solid #CDE9D8; }
+  .note{ font-size:12.5px; color:var(--muted); line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="titlebar">
+    <span class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></span>
+    <span class="tt">Mood</span>
+  </div>
+  <div class="body">
+    <!-- 侧栏 -->
+    <aside class="side">
+      <div class="brand"><div class="wmeyes">M<span class="o"></span><span class="o"></span>D<span class="blush"></span></div></div>
+      <div class="navlabel">导航</div>
+      <nav class="nav" id="nav">
+        <button class="on" data-p="today"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>今日陪伴</button>
+        <button data-p="presence"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/></svg>状态</button>
+        <button data-p="bind"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M7 8 3 12l4 4M17 8l4 4-4 4M14 4l-4 16"/></svg>工具绑定</button>
+        <button data-p="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-13.2-1.4 1.4m-10 10-1.4 1.4"/></svg>设置</button>
+      </nav>
+      <div class="foot">
+        <div class="row"><span class="dot ok"></span>设备：已连接</div>
+        <div class="ip">192.168.1.77</div>
+        <button>测试 / 重连</button>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main">
+      <!-- 今日陪伴 -->
+      <section class="page on" data-p="today">
+        <div class="head"><h1>今日陪伴</h1><div class="sub">2026 年 6 月 17 日 · 首次 09:12 · 最近 18:40</div></div>
+        <div class="card hero">
+          <div>
+            <div class="lead">它陪你的时间</div>
+            <div class="time"><span class="v">4</span><span class="u">h</span><span class="v">32</span><span class="u">m</span></div>
+            <div class="meta">和 <b>Claude Code</b> 一起度过的一天</div>
+          </div>
+          <div class="mood">
+            <svg viewBox="0 0 48 48" fill="none"><ellipse class="eye" cx="17" cy="21" rx="3.2" ry="4.4" fill="#C4632F"/><ellipse class="eye" cx="31" cy="21" rx="3.2" ry="4.4" fill="#C4632F"/><path d="M18 30c2 2.4 10 2.4 12 0" stroke="#C4632F" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="27" r="2.6" fill="#F3B8A0"/><circle cx="36" cy="27" r="2.6" fill="#F3B8A0"/></svg>
+          </div>
+        </div>
+        <div class="grid">
+          <div class="card tile"><div class="n">5</div><div class="l">会话</div><div class="sub">SessionStart 次数</div></div>
+          <div class="card tile"><div class="n">38</div><div class="l">提问</div><div class="sub">你向它发起</div></div>
+          <div class="card tile"><div class="n">1h08m</div><div class="l">最长连续专注</div><div class="sub">不被 20min 空档打断</div></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <div class="story">今天和 <b>Claude Code</b> 结对 <b>4h32m</b> · <b>5</b> 次会话 · <b>38</b> 次提问 · 最长连续专注 <b>1h08m</b>。<br>13:10–14:02 你休息时，它睡了 <b>52m</b> 💤</div>
+        </div>
+      </section>
+
+      <!-- 状态 -->
+      <section class="page" data-p="presence">
+        <div class="head"><h1>状态</h1></div>
+        <div class="rows" id="presenceRows">
+          <div class="row on" data-v="auto"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/></svg></span><div class="rtext"><div class="name">工作中</div></div><span class="radio"></span></div>
+          <div class="row" data-v="meeting"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M2 21h20"/></svg></span><div class="rtext"><div class="name">开会中</div></div><span class="radio"></span></div>
+          <div class="row" data-v="toilet"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 3h12v18M6 3v18M3 21h18M9 8h0"/></svg></span><div class="rtext"><div class="name">上厕所中</div></div><span class="radio"></span></div>
+          <div class="row" data-v="solder"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 21 14 10M14 10l3-3 4 4-3 3zM14 10l-3 3"/></svg></span><div class="rtext"><div class="name">实验室中</div></div><span class="radio"></span></div>
+          <div class="row" data-v="rest"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8h13a4 4 0 0 1 0 8h-1M4 8v9a1 1 0 0 0 1 1h6M8 2v2M11 2v2"/></svg></span><div class="rtext"><div class="name">休息中</div></div><span class="radio"></span></div>
+        </div>
+      </section>
+
+      <!-- 工具绑定 -->
+      <section class="page" data-p="bind">
+        <div class="head"><h1>工具绑定</h1></div>
+        <div class="rows" id="bindRows">
+          <div class="row on" data-v="cc"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18"/></svg></span><div class="rtext"><div class="name">Claude Code</div><div class="meta">已安装 hook · cc</div></div><span class="pill">最近有事件</span></div>
+          <div class="row" data-v="cursor"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 8-6 1.6L9.6 19z"/></svg></span><div class="rtext"><div class="name">Cursor</div><div class="meta">已安装 hook · cursor</div></div><span class="pill off">空闲</span></div>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="page" data-p="settings">
+        <div class="head"><h1>设置 · Hook 安装</h1></div>
+        <div class="card">
+          <div class="field"><label>设备地址</label><input value="192.168.1.77"></div>
+          <div class="rows">
+            <div class="row" style="cursor:default"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v18M3 12h18M6 6l12 12M18 6 6 18"/></svg></span><div class="rtext"><div class="name">Claude Code</div><div class="meta">本机已检测到 · hook 已配置</div></div><button class="btn">安装 / 更新</button></div>
+            <div class="row" style="cursor:default"><span class="ricon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M5 3l14 8-6 1.6L9.6 19z"/></svg></span><div class="rtext"><div class="name">Cursor</div><div class="meta" style="color:#C9A">未检测到（本机未安装）</div></div><button class="btn" disabled>安装 / 更新</button></div>
+          </div>
+          <div class="toast">✅ Claude Code 已配置（设备 192.168.1.77）。重启该工具后开新会话生效。</div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+  const nav = document.getElementById('nav');
+  nav.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    [...nav.children].forEach(x=>x.classList.toggle('on', x===b));
+    document.querySelectorAll('.page').forEach(p=>p.classList.toggle('on', p.dataset.p===b.dataset.p));
+  });
+  function single(id){ const box=document.getElementById(id); if(!box) return;
+    box.addEventListener('click', e=>{ const r=e.target.closest('.row'); if(!r) return;
+      [...box.children].forEach(x=>x.classList.toggle('on', x===r)); }); }
+  single('presenceRows'); single('bindRows');
+</script>
+</body>
+</html>
