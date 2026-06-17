@@ -164,9 +164,17 @@ function touchLastSeen(source, now, dir = configDir()) {
     if (!st.lastSeen) st.lastSeen = {};
     st.lastSeen[source] = now;
     fs.mkdirSync(dir, { recursive: true });
+    const data = JSON.stringify(st);
     const tmp = `${p}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(st));
-    fs.renameSync(tmp, p);
+    try {
+      fs.writeFileSync(tmp, data);
+      fs.renameSync(tmp, p);          // 原子替换(POSIX 首选)
+    } catch (_) {
+      // Windows 下 rename 偶发 EPERM/EBUSY(目标被读/杀软锁住):退化为直接覆盖写,
+      // 并清掉残留 tmp——否则每次失败都堆一个 agent-state.json.<pid>.tmp(单写者,直写无竞争)
+      try { fs.writeFileSync(p, data); } catch (_) {}
+      try { fs.unlinkSync(tmp); } catch (_) {}
+    }
   } catch (_) {}
 }
 
