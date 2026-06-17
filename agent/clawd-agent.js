@@ -186,7 +186,7 @@ function startServer(port = DEFAULT_PORT) {
     }
     rs.writeHead(404); rs.end('not found');
   });
-  server.listen(port);
+  server.listen(port, '127.0.0.1');   // 仅绑本机回环:控制台含陪伴数据+工具绑定,不暴露给局域网
   return server;
 }
 
