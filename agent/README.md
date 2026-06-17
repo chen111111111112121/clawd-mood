@@ -1,6 +1,6 @@
-# Clawd Agent · 工具绑定控制台
+# Clawd Agent · 控制台
 
-绑定 Mochi 当前响应哪一款 AI 工具。被绑定工具的 hook 事件才驱动设备，其他工具静默忽略。
+本地控制台现为两页面板：「今日陪伴」（当天陪伴时长 / 会话 / 提问 / 最长连续专注 / 午睡叙事）和「工具绑定」（绑定 Mochi 当前响应哪一款 AI 工具）。被绑定工具的 hook 事件才驱动设备，其他工具静默忽略。
 
 ## 运行
 
@@ -8,7 +8,11 @@
 node clawd-agent.js          # 默认端口 6624,可用 CLAWD_AGENT_PORT 覆盖
 ```
 
-浏览器打开 http://127.0.0.1:6624 ，单选当前工具。
+浏览器打开 http://127.0.0.1:6624 ，在「今日陪伴」查看当天陪伴概览，在「工具绑定」单选当前工具。
+
+## HTTP 接口
+
+- `GET /today`（可加 `?date=YYYY-MM-DD`，默认当天）：用 20 分钟空闲阈值聚合当天事件日志，返回「今日陪伴」所需数据。
 
 ## 给某款工具的 hook 声明来源
 
@@ -19,6 +23,7 @@ node clawd-agent.js          # 默认端口 6624,可用 CLAWD_AGENT_PORT 覆盖
 
 - `agent.json`：`activeTool` + 工具注册表（控制台写、hook 读）。`activeTool` 为空 ⇒ 不门控（所有工具放行，兼容旧版）。
 - `agent-state.json`：`lastSeen`（hook 写、控制台读，用于活动指示）。
+- `events-YYYY-MM-DD.jsonl`：按天事件日志（hook 写、控制台读），供「今日陪伴」聚合。
 
 ## 扩展一款新 AI 工具
 
