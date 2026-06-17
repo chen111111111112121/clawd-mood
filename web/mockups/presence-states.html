@@ -219,11 +219,14 @@ function renderRest(g,ms){
     g.restore();
   }
 
-  // ── 咖啡杯 + 蒸汽（底部中央）──
-  const cx=130, cy=180, cw=36, ch=24;
-  g.strokeStyle=WHITE;g.lineWidth=3;g.lineJoin='round';
-  g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+cw,cy);g.lineTo(cx+cw-5,cy+ch);g.lineTo(cx+5,cy+ch);g.closePath();g.stroke();
-  g.beginPath();g.arc(cx+cw+4,cy+8,7,-1.2,1.2);g.stroke();   // 把手
+  // ── 立体咖啡杯 + 蒸汽（底部中央）──
+  const cx=130, cy=180, cw=34, ch=22, rcx=cx+cw/2;
+  g.fillStyle=WHITE; g.beginPath();g.arc(cx+cw+3,cy+ch/2+1,8,0,7);g.fill();   // 把手外圈
+  g.fillStyle=ORANGE; g.beginPath();g.arc(cx+cw+4,cy+ch/2+1,4,0,7);g.fill();  // 挖空成 C 环
+  g.fillStyle=WHITE; roundRect(g,cx,cy,cw,ch,4);                              // 杯身
+  g.fillStyle='#c6c8ce'; g.fillRect(cx+cw-7,cy+4,4,ch-9);                     // 右侧圆柱阴影
+  g.fillStyle=WHITE; g.beginPath();g.ellipse(rcx,cy,cw/2,5,0,0,7);g.fill();   // 杯口白沿
+  g.fillStyle='#66391d'; g.beginPath();g.ellipse(rcx,cy,cw/2-3,3,0,0,7);g.fill(); // 咖啡面
   g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=2.2;
   for(let s=0;s<2;s++){ g.beginPath();
     for(let k=0;k<=12;k++){const yy=cy-4-k*3.2; const ph=ms/360+s*1.4+k*0.55;

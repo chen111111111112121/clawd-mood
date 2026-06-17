@@ -1231,10 +1231,15 @@ static void drawRestScene(uint32_t now) {
     };
 
     if (s_presDrawn != (int8_t)PRES_REST) {              // 进场:静态咖啡杯 + 静态耳机(此后不每帧重画→不闪)
-        const int16_t cx=130, cy=180, cw=36, ch=24;
-        g.drawLine(cx,cy, cx+cw,cy, OV_WHITE); g.drawLine(cx+cw,cy, cx+cw-5,cy+ch, OV_WHITE);
-        g.drawLine(cx+cw-5,cy+ch, cx+5,cy+ch, OV_WHITE); g.drawLine(cx+5,cy+ch, cx,cy, OV_WHITE);
-        g.drawCircle(cx+cw+4, cy+8, 7, OV_WHITE);        // 把手
+        // 立体咖啡杯:C 形白环把手 + 圆角白杯身 + 右侧圆柱阴影 + 椭圆杯口(露咖啡面=俯视立体感)
+        const int16_t cx=130, cy=180, cw=34, ch=22, rcx=cx+cw/2;
+        const uint16_t C_COFFEE=rgb565(102,57,29), C_SHADE=rgb565(198,200,206);
+        g.fillCircle(cx+cw+3, cy+ch/2+1, 8, OV_WHITE);   // 把手外圈
+        g.fillCircle(cx+cw+4, cy+ch/2+1, 4, OV_BG);      // 挖空成 C 环
+        g.fillRoundRect(cx, cy, cw, ch, 4, OV_WHITE);    // 杯身
+        g.fillRect(cx+cw-7, cy+4, 4, ch-9, C_SHADE);     // 右侧圆柱阴影
+        g.fillEllipse(rcx, cy, cw/2, 5, OV_WHITE);       // 杯口白沿
+        g.fillEllipse(rcx, cy, cw/2-3, 3, C_COFFEE);     // 咖啡面
         paintPhones(g, 0, 0);
     }
 
