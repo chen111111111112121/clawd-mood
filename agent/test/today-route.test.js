@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { startServer, readEvents } = require('../clawd-agent.js');
+const { startServer, readEvents, todayStr } = require('../clawd-agent.js');
 
 const MIN = 60 * 1000;
 
@@ -100,4 +100,28 @@ test('readEvents:跳过坏行(非 JSON)而不抛错', () => {
 test('readEvents:缺文件 → 空数组', () => {
   const dir = mkTmpDir();
   assert.deepStrictEqual(readEvents('2099-12-31', dir), []);
+});
+
+test('GET /today?date=路径穿越 → 回落今日,不读越界文件', async () => {
+  const dir = mkTmpDir();
+  process.env.CLAWD_CONFIG_DIR = dir;
+  // 在配置目录外种一个文件,确保穿越 date 不会读到它
+  const secret = path.join(dir, '..', `clawd-leak-${process.pid}.jsonl`);
+  fs.writeFileSync(secret, JSON.stringify({ ts: 1, tool: 'leak', event: 'SessionStart' }) + '\n');
+  const { server, port } = await listen();
+  try {
+    for (const bad of ['../../etc', 'not-a-date', `../clawd-leak-${process.pid}`]) {
+      const r = await getJSON(port, `/today?date=${encodeURIComponent(bad)}`);
+      // 非法 date 回落到今日(本地 YYYY-MM-DD),且不混入越界文件内容
+      assert.strictEqual(r.date, todayStr(), `bad date ${bad} 应回落今日`);
+      assert.strictEqual(r.tool, null, `bad date ${bad} 不应读到越界文件`);
+      assert.strictEqual(r.sessions, 0);
+      assert.strictEqual(r.activeMs, 0);
+      assert.deepStrictEqual(r.segments, []);
+    }
+  } finally {
+    server.close();
+    delete process.env.CLAWD_CONFIG_DIR;
+    try { fs.unlinkSync(secret); } catch (_) {}
+  }
 });

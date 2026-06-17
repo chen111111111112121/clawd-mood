@@ -177,7 +177,8 @@ function startServer(port = DEFAULT_PORT) {
       rs.writeHead(200, { 'Content-Type': 'application/json' }); rs.end(JSON.stringify(r)); return;
     }
     if (rq.method === 'GET' && u.pathname === '/today') {
-      const date = u.searchParams.get('date') || todayStr();
+      const q = u.searchParams.get('date');
+      const date = (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) ? q : todayStr();  // 仅认 YYYY-MM-DD,防路径穿越
       const summary = aggregateEvents(readEvents(date));
       rs.writeHead(200, { 'Content-Type': 'application/json' });
       rs.end(JSON.stringify({ date, ...summary }));
