@@ -4,67 +4,215 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Clawd · 控制台</title>
 <style>
-  body { margin:0; font:15px/1.6 system-ui,sans-serif; background:#161616; color:#eee; }
-  .wrap { max-width:480px; margin:0 auto; padding:22px 16px; }
-  h2 { margin:0 0 4px; }
-  .sub { opacity:.55; font-size:13px; margin-bottom:18px; }
-  .dev { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; margin-bottom:16px;
-         border:1px solid #2c2c2c; border-radius:12px; background:#1d1d1d; }
-  .dev .ok { color:#4ade80; } .dev .bad { color:#f87171; }
-  button { font:inherit; color:inherit; background:#262626; border:1px solid #3a3a3a; border-radius:8px; padding:5px 12px; cursor:pointer; }
-  .h { opacity:.5; font-size:12px; margin:0 0 8px 2px; }
-  .tool { display:flex; align-items:center; gap:12px; padding:13px 14px; margin-bottom:9px; cursor:pointer;
-          border:1px solid #2c2c2c; border-radius:12px; background:#1d1d1d; }
-  .tool.on { border-color:#4ade80; background:#162a1c; }
-  .radio { width:18px; height:18px; border-radius:50%; border:2px solid #555; flex:0 0 auto; position:relative; }
-  .tool.on .radio { border-color:#4ade80; }
-  .tool.on .radio::after { content:''; position:absolute; inset:3px; border-radius:50%; background:#4ade80; }
-  .name { font-weight:600; } .meta { font-size:12px; opacity:.5; }
-  .live { margin-left:auto; font-size:11px; padding:2px 9px; border-radius:20px; background:#243; color:#bbf7d0; }
-  .live.off { background:#222; color:#777; }
+  :root{
+    --bg1:#FBEFE0; --bg2:#F1DEC6; --shell:#FFFDFA; --side:#FBF2E7;
+    --line:#EEE0CE; --line2:#F3E8D9; --ink:#43342A; --muted:#9C8A78; --faint:#BCAB97;
+    --coral:#D97757; --coral-deep:#C4632F; --coral-soft:#FBEEE2;
+    --shadow:0 14px 44px rgba(150,95,55,.16); --cardsh:0 4px 16px rgba(150,95,55,.06);
+  }
+  *{box-sizing:border-box}
+  body{ margin:0; min-height:100vh; color:var(--ink);
+    font:15px/1.6 ui-rounded,"SF Pro Rounded","Segoe UI",system-ui,sans-serif;
+    background:radial-gradient(110% 55% at 50% -8%, #FFF6EA 0%, transparent 55%), linear-gradient(165deg,var(--bg1),var(--bg2));
+    display:grid; place-items:center; padding:26px; }
+  .shell{ width:100%; max-width:1060px; min-height:600px; display:flex;
+    background:var(--shell); border:1px solid var(--line); border-radius:26px; box-shadow:var(--shadow); overflow:hidden; }
+  .side{ width:212px; flex:0 0 auto; background:var(--side); border-right:1px solid var(--line);
+    padding:20px 14px; display:flex; flex-direction:column; }
+  .brand{ display:flex; align-items:center; gap:10px; padding:4px 8px 18px; }
+  .brand .mark{ width:30px; height:30px; border-radius:9px; background:linear-gradient(160deg,#E8915F,#C4632F);
+    display:grid; place-items:center; box-shadow:0 3px 8px rgba(196,99,47,.3); }
+  .brand .mark svg{ width:18px; height:18px; }
+  .brand .t{ font-weight:800; font-size:16px; }
+  .brand .t small{ display:block; font-size:10.5px; font-weight:600; color:var(--faint); letter-spacing:.06em; }
+  .navlabel{ font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint); font-weight:700; margin:14px 10px 7px; }
+  .nav a{ display:flex; align-items:center; gap:11px; padding:10px 11px; border-radius:12px; margin-bottom:3px;
+    color:#6E5D4E; text-decoration:none; font-size:14px; font-weight:600; cursor:pointer; transition:.15s; }
+  .nav a svg{ width:18px; height:18px; opacity:.7; }
+  .nav a:hover{ background:#F5E8D8; }
+  .nav a.on{ background:var(--coral-soft); color:var(--coral-deep); }
+  .nav a.on svg{ opacity:1; }
+  .side .foot{ margin-top:auto; padding:11px 12px; border-radius:13px; background:#FFFDFA; border:1px solid var(--line2); }
+  .side .foot .row{ display:flex; align-items:center; gap:8px; font-size:12px; }
+  .side .foot .dot{ width:8px; height:8px; border-radius:50%; background:#bbb; }
+  .side .foot .dot.ok{ background:#3FAE7A; box-shadow:0 0 0 3px #E3F3EA; }
+  .side .foot .dot.bad{ background:#E0705F; box-shadow:0 0 0 3px #F7E2DD; }
+  .side .foot .ip{ font-size:11.5px; color:var(--faint); margin-top:4px; word-break:break-all; }
+  .side .foot button{ margin-top:8px; width:100%; font:inherit; font-size:12px; color:var(--coral-deep);
+    background:var(--coral-soft); border:1px solid var(--line); border-radius:9px; padding:5px; cursor:pointer; }
+  .main{ flex:1; padding:24px 30px 30px; min-width:0; }
+  .head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:20px; }
+  .head h1{ margin:0; font-size:24px; font-weight:800; }
+  .head .date{ font-size:13px; color:var(--faint); }
+  .page{ display:none; } .page.on{ display:block; }
+  .grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  .card{ background:var(--shell); border:1px solid var(--line); border-radius:18px; box-shadow:var(--cardsh); padding:18px 20px; }
+  .span2{ grid-column:1 / -1; }
+  .hero{ display:flex; align-items:center; justify-content:space-between; gap:24px; }
+  .hero .lead{ font-size:12.5px; color:var(--coral-deep); font-weight:700; }
+  .hero .time{ margin:6px 0 3px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .hero .time .v{ font-size:54px; } .hero .time .u{ font-size:24px; color:var(--coral); margin:0 9px 0 3px; }
+  .hero .right{ flex:0 0 auto; text-align:center; }
+  .mood{ width:64px; height:64px; border-radius:50%; margin:0 auto 8px;
+    background:radial-gradient(circle at 38% 32%,#FBE7D2,#F1CBA8);
+    display:grid; place-items:center; box-shadow:inset 0 -4px 11px rgba(196,99,47,.16); }
+  .mood svg{ width:44px; height:44px; }
+  .mood .eye{ transform-origin:center; animation:blink 5s infinite; }
+  @keyframes blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+  .mood + .cap{ font-size:11.5px; color:var(--faint); }
+  .story{ margin-top:16px; font-size:14px; color:var(--muted); line-height:1.7; }
+  .story b{ color:var(--coral-deep); }
+  .tile .n{ font-size:34px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .tile .l{ font-size:12.5px; color:var(--muted); margin-top:7px; }
+  .tile .sub{ font-size:11.5px; color:var(--faint); margin-top:2px; }
+  .empty{ text-align:center; color:var(--muted); padding:48px 0; font-size:15px; }
+  .sub{ opacity:.55; font-size:13px; margin:-10px 0 16px; }
+  .tool{ display:flex; align-items:center; gap:12px; padding:13px 14px; margin-bottom:9px; cursor:pointer;
+    border:1px solid var(--line); border-radius:14px; background:var(--shell); box-shadow:var(--cardsh); }
+  .tool.on{ border-color:var(--coral); background:var(--coral-soft); }
+  .radio{ width:18px; height:18px; border-radius:50%; border:2px solid #d8c6b0; flex:0 0 auto; position:relative; }
+  .tool.on .radio{ border-color:var(--coral); }
+  .tool.on .radio::after{ content:''; position:absolute; inset:3px; border-radius:50%; background:var(--coral); }
+  .tool .name{ font-weight:700; } .tool .meta{ font-size:12px; color:var(--faint); }
+  .live{ margin-left:auto; font-size:11px; padding:2px 9px; border-radius:20px; background:#E3F3EA; color:#2E7D55; }
+  .live.off{ background:#F1E6D6; color:var(--faint); }
+  @media(max-width:880px){
+    .shell{ flex-direction:column; min-height:0; }
+    .side{ width:auto; border-right:none; border-bottom:1px solid var(--line); }
+    .nav{ display:flex; flex-wrap:wrap; gap:4px; } .nav a{ margin:0; } .navlabel,.side .foot{ display:none; }
+    .grid{ grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h2>Clawd · 控制台</h2>
-  <div class="sub">绑定 Mochi 当前响应哪一款 AI 工具</div>
-  <div class="dev">
-    <div id="dev">设备：<b id="devt">…</b> <span id="devs"></span></div>
-    <button onclick="testDev()">测试 / 重连</button>
-  </div>
-  <p class="h">MOCHI 当前响应（单选）</p>
-  <div id="tools"></div>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <span class="mark"><svg viewBox="0 0 20 20" fill="none"><rect x="4" y="6" width="12" height="9" rx="2" fill="#F4E4C8"/><rect x="6.6" y="9" width="2" height="3.4" rx="1" fill="#6E4A33"/><rect x="11.4" y="9" width="2" height="3.4" rx="1" fill="#6E4A33"/></svg></span>
+      <span class="t">Clawd<small>桌面陪伴控制台</small></span>
+    </div>
+    <div class="navlabel">概览</div>
+    <nav class="nav">
+      <a class="on" data-page="today"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 17s-5.5-3.6-5.5-7.5A3 3 0 0 1 10 7a3 3 0 0 1 5.5 2.5C15.5 13.4 10 17 10 17z"/></svg>今日陪伴</a>
+    </nav>
+    <div class="navlabel">设置</div>
+    <nav class="nav">
+      <a data-page="bind"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 3 3 11l3 3 8-8z"/><path d="M13 5l2-2 2 2-2 2"/></svg>工具绑定</a>
+    </nav>
+    <div class="foot">
+      <div class="row"><span class="dot" id="devdot"></span><span id="devstat">检测中…</span></div>
+      <div class="ip" id="devip">…</div>
+      <button onclick="testDev()">测试 / 重连</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="page on" id="page-today">
+      <div class="head"><h1>今日陪伴</h1><div class="date" id="today-date"></div></div>
+      <div id="today-body"></div>
+    </section>
+
+    <section class="page" id="page-bind">
+      <div class="head"><h1>工具绑定</h1></div>
+      <div class="sub">绑定 Mochi 当前响应哪一款 AI 工具（单选）</div>
+      <div id="tools"></div>
+    </section>
+  </main>
 </div>
+
 <script>
   const ACTIVE_FRESH_MS = 60000;
-  async function load() {
+  let toolNames = {};
+
+  document.querySelectorAll('.nav a').forEach((a) => {
+    a.onclick = () => {
+      document.querySelectorAll('.nav a').forEach((x) => x.classList.remove('on'));
+      a.classList.add('on');
+      document.querySelectorAll('.page').forEach((p) => p.classList.remove('on'));
+      document.getElementById('page-' + a.dataset.page).classList.add('on');
+    };
+  });
+
+  function fmtDur(ms){ const m=Math.round(ms/60000), h=Math.floor(m/60), mm=m%60; return h ? `${h}h${mm}m` : `${mm}m`; }
+  function hhmm(ts){ const d=new Date(ts); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+
+  function renderToday(t){
+    document.getElementById('today-date').textContent =
+      new Date((t.firstTs||Date.now())).toLocaleDateString('zh-CN',{month:'long',day:'numeric',weekday:'long'});
+    const body = document.getElementById('today-body');
+    if(!t.firstTs){
+      body.innerHTML = '<div class="empty">今天还没开始陪伴，去写点代码吧 🐾</div>';
+      return;
+    }
+    const tool = toolNames[t.tool] || t.tool || 'AI';
+    const bigNap = (t.naps||[]).slice().sort((a,b)=>b.ms-a.ms)[0];
+    let story = `今天和 <b>${tool}</b> 结对 <b>${fmtDur(t.activeMs)}</b> · <b>${t.sessions}</b> 次会话 · <b>${t.asks}</b> 次提问`;
+    if(t.longestFocusMs) story += ` · 最长连续专注 <b>${fmtDur(t.longestFocusMs)}</b>`;
+    if(bigNap) story += `<br>${hhmm(bigNap.start)}–${hhmm(bigNap.end)} 你休息时，它睡了 <b>${fmtDur(bigNap.ms)}</b> 💤`;
+    const hm = fmtDur(t.activeMs).match(/(?:(\d+)h)?(\d+)m/);
+    const h = hm && hm[1] ? hm[1] : '0', m = hm ? hm[2] : '0';
+    body.innerHTML = `
+      <div class="grid">
+        <section class="card span2">
+          <div class="hero">
+            <div>
+              <div class="lead">它陪你的时间</div>
+              <div class="time"><span class="v">${h}</span><span class="u">h</span><span class="v">${m}</span><span class="u">m</span></div>
+              <div class="cap" style="color:var(--faint);font-size:12.5px">首次 ${hhmm(t.firstTs)} · 最近 ${hhmm(t.lastTs)}</div>
+            </div>
+            <div class="right">
+              <div class="mood"><svg viewBox="0 0 40 40">
+                <g fill="#6E4A33"><ellipse class="eye" cx="15" cy="19" rx="2.7" ry="4"/><ellipse class="eye" cx="25" cy="19" rx="2.7" ry="4"/></g>
+                <path d="M15 27 q5 3.6 10 0" fill="none" stroke="#6E4A33" stroke-width="1.8" stroke-linecap="round"/>
+              </svg></div>
+              <div class="cap">Clawd 状态良好</div>
+            </div>
+          </div>
+          <div class="story">${story}</div>
+        </section>
+        <section class="card tile"><div class="n">${t.sessions}</div><div class="l">会话</div><div class="sub">今天开启的对话</div></section>
+        <section class="card tile"><div class="n">${t.asks}</div><div class="l">提问</div><div class="sub">你向 Clawd 发起的请求</div></section>
+        <section class="card tile span2"><div class="n">${fmtDur(t.longestFocusMs)}</div><div class="l">最长连续专注</div><div class="sub">不被 20 分钟以上空档打断的最长一段</div></section>
+      </div>`;
+  }
+
+  async function loadToday(){
+    try{ renderToday(await (await fetch('/today')).json()); }catch(_){}
+  }
+
+  async function loadBind(){
     const s = await (await fetch('/state')).json();
-    const box = document.getElementById('tools'); box.innerHTML = '';
-    s.tools.forEach((t) => {
+    toolNames = {}; s.tools.forEach((t)=>{ toolNames[t.id]=t.name; });
+    const box = document.getElementById('tools'); box.innerHTML='';
+    s.tools.forEach((t)=>{
       const on = s.activeTool === t.id;
       const seen = s.lastSeen && s.lastSeen[t.id];
       const fresh = seen && (Date.now() - seen < ACTIVE_FRESH_MS);
       const el = document.createElement('div');
       el.className = 'tool' + (on ? ' on' : '');
       el.innerHTML = `<span class="radio"></span>
-        <span><div class="name">${t.name}</div><div class="meta">${t.installed ? '已安装 hook' : '未安装 hook'} · ${t.id}</div></span>
-        <span class="live ${fresh ? '' : 'off'}">${fresh ? '最近有事件' : '空闲'}</span>`;
+        <span><div class="name">${t.name}</div><div class="meta">${t.installed?'已安装 hook':'未安装 hook'} · ${t.id}</div></span>
+        <span class="live ${fresh?'':'off'}">${fresh?'最近有事件':'空闲'}</span>`;
       el.onclick = () => setActive(t.id);
       box.appendChild(el);
     });
   }
-  async function setActive(tool) {
-    await fetch('/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tool }) });
-    load();
+  async function setActive(tool){
+    await fetch('/active',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tool})});
+    loadBind();
   }
-  async function testDev() {
-    document.getElementById('devs').textContent = '测试中…';
+
+  async function testDev(){
+    document.getElementById('devstat').textContent='测试中…';
     const r = await (await fetch('/device/test')).json();
-    document.getElementById('devt').textContent = r.target;
-    document.getElementById('devs').className = r.ok ? 'ok' : 'bad';
-    document.getElementById('devs').textContent = r.ok ? '● 已连接' : '● 不可达';
+    document.getElementById('devip').textContent = r.target;
+    document.getElementById('devdot').className = 'dot ' + (r.ok?'ok':'bad');
+    document.getElementById('devstat').textContent = r.ok?'设备已连接':'设备不可达';
   }
-  load(); testDev(); setInterval(load, 5000);
+
+  (async () => { await loadBind(); loadToday(); testDev(); })();
+  setInterval(loadBind, 5000);
+  setInterval(loadToday, 30000);
 </script>
 </body>
 </html>
