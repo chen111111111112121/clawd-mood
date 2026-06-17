@@ -1160,7 +1160,23 @@ static void drawSolderScene(uint32_t now) {
                    C_FERR=rgb565(202,162,58), C_BAR=rgb565(207,207,207), C_BARHI=rgb565(242,242,242),
                    C_TIP=rgb565(143,143,143), C_HOT=rgb565(255,140,50), C_SMOKE=rgb565(150,150,150);
 
-    if (s_presDrawn != (int8_t)PRES_SOLDER) {             // 进场:仅静态 PCB(y204+,在擦除带下方)
+    // 画烙铁到任意画布:屏幕坐标减(offX,offY)→画布坐标。静态屏幕与每帧 sprite 复用同一几何,接缝一致。
+    auto paintIron = [&](auto& c, int16_t offX, int16_t offY){
+        const float Tx=jx, Ty=jy-2, Hx=210, Hy=150;
+        float ux=Hx-Tx, uy=Hy-Ty; const float L=sqrtf(ux*ux+uy*uy); ux/=L; uy/=L;
+        const float px=-uy, py=ux;
+        auto P=[&](float d,float&X,float&Y){ X=Tx+ux*d-offX; Y=Ty+uy*d-offY; };
+        auto thick=[&](float d0,float d1,int w,uint16_t col){ float ax,ay,bx,by; P(d0,ax,ay); P(d1,bx,by);
+            for(int o=-w/2;o<=w/2;o++) c.drawLine((int)(ax+px*o),(int)(ay+py*o),(int)(bx+px*o),(int)(by+py*o),col); };
+        thick(38,104,14,C_GRIP); thick(44,98,4,C_GHI);
+        for(float d=48;d<=92;d+=9){ float cxx,cyy; P(d,cxx,cyy); c.drawLine((int)(cxx+px*7),(int)(cyy+py*7),(int)(cxx-px*7),(int)(cyy-py*7),C_GROOVE); }
+        thick(30,38,11,C_FERR); thick(14,30,7,C_BAR); thick(15,29,3,C_BARHI);
+        float bX,bY2,eX,eY,hX,hY; P(14,bX,bY2); P(0,eX,eY); P(5,hX,hY);
+        c.fillTriangle((int)(bX+px*3.6f),(int)(bY2+py*3.6f),(int)(bX-px*3.6f),(int)(bY2-py*3.6f),(int)eX,(int)eY,C_TIP);
+        c.fillTriangle((int)(hX+px*2.6f),(int)(hY+py*2.6f),(int)(hX-px*2.6f),(int)(hY-py*2.6f),(int)eX,(int)eY,C_HOT);
+    };
+
+    if (s_presDrawn != (int8_t)PRES_SOLDER) {             // 进场:静态 PCB + 完整烙铁(动态区每帧由 sprite 覆盖,sprite 外的手柄靠这次)
         const int16_t pbX=22, pbY=204, pbW=196, pbH=32;
         g.fillRect(pbX, pbY+4, pbW, pbH, C_PTHK);
         g.fillRect(pbX, pbY, pbW, pbH-4, C_PFACE);
@@ -1168,34 +1184,25 @@ static void drawSolderScene(uint32_t now) {
         g.drawLine(jx,pbY+9, 150,pbY+9, C_TRACE);         g.drawLine(150,pbY+9, 170,pbY+22, C_TRACE);
         const int16_t pads[4][2]={{48,pbY+20},{74,pbY+20},{170,pbY+22},{196,pbY+15}};
         for (auto& pd : pads) g.fillCircle(pd[0], pd[1], 3, C_PAD);
+        paintIron(g, 0, 0);
     }
 
-    // 每帧:擦烟带(焊点上方一柱,底止于 PCB 顶 y204,绝不碰 PCB)
-    g.fillRect(jx-20, 140, 40, jy-140, OV_BG);            // x98..138, y140..204
-
-    // 烟丝(波浪上升)
-    { int16_t lastX=0,lastY=0;
-      for (int k=0;k<=18;k++){ int16_t yy=jy-6-k*3; int16_t xx=jx+(int16_t)(sinf(now/300.0f+k*0.5f)*(4+k*0.35f));
-        if (k>0) { g.drawLine(lastX,lastY,xx,yy,C_SMOKE); } lastX=xx; lastY=yy; } }
-
-    // 烙铁(每帧重画,盖在烟之上):握把/护圈/银杆/锥尖朝下/发热。沿轴 T(jx,jy-2)→H(210,150)
-    { const float Tx=jx, Ty=jy-2, Hx=210, Hy=150;
-      float ux=Hx-Tx, uy=Hy-Ty; const float L=sqrtf(ux*ux+uy*uy); ux/=L; uy/=L;
-      const float px=-uy, py=ux;
-      auto P=[&](float d,float&X,float&Y){X=Tx+ux*d;Y=Ty+uy*d;};
-      auto thick=[&](float d0,float d1,int w,uint16_t c){float ax,ay,bx,by;P(d0,ax,ay);P(d1,bx,by);
-        for(int o=-w/2;o<=w/2;o++) g.drawLine((int)(ax+px*o),(int)(ay+py*o),(int)(bx+px*o),(int)(by+py*o),c);};
-      thick(38,104,14,C_GRIP); thick(44,98,4,C_GHI);
-      for(float d=48;d<=92;d+=9){float cx,cy;P(d,cx,cy);g.drawLine((int)(cx+px*7),(int)(cy+py*7),(int)(cx-px*7),(int)(cy-py*7),C_GROOVE);}
-      thick(30,38,11,C_FERR); thick(14,30,7,C_BAR); thick(15,29,3,C_BARHI);
-      float bX,bY2,eX,eY,hX,hY;P(14,bX,bY2);P(0,eX,eY);P(5,hX,hY);
-      g.fillTriangle((int)(bX+px*3.6f),(int)(bY2+py*3.6f),(int)(bX-px*3.6f),(int)(bY2-py*3.6f),(int)eX,(int)eY,C_TIP);
-      g.fillTriangle((int)(hX+px*2.6f),(int)(hY+py*2.6f),(int)(hX-px*2.6f),(int)(hY-py*2.6f),(int)eX,(int)eY,C_HOT); }
-
-    // 火花(偶发,向上半周迸,盖最上;靠下一帧擦烟带清除,故只在 y<204 带内)
-    if ((now % 1400) < 160) {
-        for (int i=0;i<6;i++){ float a=3.1416f + (float)i/6.0f*3.1416f;
-            g.drawLine((int)(jx+cosf(a)*4),(int)(201+sinf(a)*4),(int)(jx+cosf(a)*10),(int)(201+sinf(a)*10), OV_WHITE); }
+    // 动态区(焊点上方一柱:烟+火花+下段烙铁)离屏 sprite 合成后一次推屏 → 无闪。区域 x98..138 y140..204
+    const int16_t RX=98, RY=140, RW=40, RH=(int16_t)(jy-RY);
+    lgfx::LGFX_Sprite cv(&g);
+    cv.setColorDepth(16);
+    if (cv.createSprite(RW, RH)) {
+        cv.fillScreen(OV_BG);
+        { int16_t lastX=0,lastY=0;                         // 烟丝(波浪上升,sprite 局部坐标)
+          for (int k=0;k<=18;k++){ int16_t yy=(int16_t)(jy-6-k*3)-RY; int16_t xx=(int16_t)(jx+(int16_t)(sinf(now/300.0f+k*0.5f)*(4+k*0.35f)))-RX;
+            if (k>0) { cv.drawLine(lastX,lastY,xx,yy,C_SMOKE); } lastX=xx; lastY=yy; } }
+        paintIron(cv, RX, RY);                             // 下段烙铁(超出 sprite 自动裁剪),盖在烟上
+        if ((now % 1400) < 160) {                          // 火花(上半周),盖最上
+            for (int i=0;i<6;i++){ float a=3.1416f + (float)i/6.0f*3.1416f;
+                cv.drawLine((int)(jx+cosf(a)*4)-RX,(int)(201+sinf(a)*4)-RY,(int)(jx+cosf(a)*10)-RX,(int)(201+sinf(a)*10)-RY, OV_WHITE); }
+        }
+        cv.pushSprite(RX, RY);
+        cv.deleteSprite();
     }
 }
 // 休息中:咖啡杯(静态) + 每帧重画 耳机(被音符擦除啃到,故每帧补)→音符→蒸汽。眼睛由 presenceTickEyes 处理(睁眼点头)。
