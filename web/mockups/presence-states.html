@@ -107,16 +107,17 @@ function renderMeeting(g,ms){
 // ───────────────────────── 上厕所中 ─────────────────────────
 function renderToilet(g,ms){
   face(g);
-  // 如释重负的笑眯眼 + 轻轻晃
-  const ox=Math.sin(ms/900)*5;
-  eyeSmile(g,LCX+ox,ECY+6,EYE_W*1.05,12);
-  eyeSmile(g,RCX+ox,ECY+6,EYE_W*1.05,12);
-  // 头顶 WC 门牌（轻微上下浮）
-  const sy=22+Math.sin(ms/1100)*3, sx=120-22, sw=44, sh=28, r=7;
-  g.fillStyle=WHITE;g.beginPath();
-  g.moveTo(sx+r,sy);g.arcTo(sx+sw,sy,sx+sw,sy+sh,r);g.arcTo(sx+sw,sy+sh,sx,sy+sh,r);
-  g.arcTo(sx,sy+sh,sx,sy,r);g.arcTo(sx,sy,sx+sw,sy,r);g.closePath();g.fill();
-  g.fillStyle=ORANGE;g.font='700 18px "Segoe UI",sans-serif';g.textAlign='center';g.textBaseline='middle';
+  // 如释重负的笑眯眼(静态,呼吸感由微小起伏)
+  const oy=Math.sin(ms/2600)*1;
+  eyeSmile(g,LCX,ECY+6+oy,EYE_W*1.05,12);
+  eyeSmile(g,RCX,ECY+6+oy,EYE_W*1.05,12);
+  // WC 门牌:白底圆角 + 橙内框(门牌质感) + 顶部挂钉 + 居中 WC(静态)
+  const sw=52, sh=34, sx=120-26, sy=22, r=9;
+  g.fillStyle=WHITE;g.fillRect(118,sy-6,4,8);                       // 挂钉
+  roundRect(g,sx,sy,sw,sh,r);                                       // 牌底
+  g.strokeStyle=ORANGE;g.lineWidth=2;
+  g.strokeRect(sx+4,sy+4,sw-8,sh-8);                                // 橙内框
+  g.fillStyle=ORANGE;g.font='700 20px "Segoe UI",sans-serif';g.textAlign='center';g.textBaseline='middle';
   g.fillText('WC',120,sy+sh/2+1);g.textAlign='left';g.textBaseline='alphabetic';
   // 右侧悠闲口哨音符（升起淡出）
   const t=(ms%1900)/1900;

@@ -515,6 +515,9 @@ static void applyPresencePending(uint32_t now) {
     } else if (np == PRES_MEETING) {
         // 开会:认真盯电脑——聚焦下视(收窄),交给 rig 自动眨眼/微扫视/呼吸+弹簧平滑(灵动流畅),不逐帧覆盖
         eyes::setPose(EyePose{STYLE_RECT, 0, 14, EYE_W, 38, 0}, RIG_BLINK | RIG_BREATH | RIG_SACCADE, true);
+    } else if (np == PRES_TOILET) {
+        // 上厕所:如释重负笑眯眼(弧眼)——交给 rig(呼吸+弹簧),不逐帧 scriptPose(ARC 逐帧直驱会闪)
+        eyes::setPose(EyePose{STYLE_ARC, 0, 6, 30, 30, 0}, RIG_BREATH, true);
     } else {
         // 其余:标脏区,确保 fillScreen 抹掉眼睛后这帧会重画(随后 presenceTickEyes 逐帧覆盖姿态)
         eyes::setPose(POSE_NORMAL, 0, true);
@@ -527,7 +530,7 @@ static void presenceTickEyes(uint32_t now) {
     EyePose p = POSE_NORMAL;
     switch (s_presence) {
         case PRES_MEETING: return;   // 眼睛由进场 setPose + rig(自动眨眼/微扫视/呼吸+弹簧平滑)驱动,不逐帧覆盖
-        case PRES_TOILET:  p = {STYLE_ARC,  (int16_t)(sinf(now/900.0f)*5),   6, 30, 30,  0}; break;
+        case PRES_TOILET:  return;   // 笑眯眼由进场 setPose + rig 驱动(消闪),不逐帧覆盖
         case PRES_SOLDER:  p = {STYLE_RECT, (int16_t)(sinf(now/220.0f)*4 + sinf(now/90.0f)*1.5f), 18, EYE_W, 24, 80}; break;
         case PRES_REST:    p = {STYLE_RECT, (int16_t)(sinf(now/960.0f)*3), (int16_t)(sinf(now/480.0f)*4), EYE_W, EYE_H, 0}; break;
         default: break;
@@ -1125,19 +1128,18 @@ static void drawMeetingScene(uint32_t now) {
         lastActive = active;
     }
 }
-// 上厕所中:WC 门牌轻浮 + 悠闲口哨音符升起(各自脏区重画)。眼睛由 presenceTickEyes 处理(笑眯眼)。
+// 上厕所中:WC 门牌(静态,消闪) + 悠闲口哨音符升起(脏区重画)。眼睛由 rig 处理(笑眯眼)。
 static void drawToiletScene(uint32_t now) {
     auto& g = display::gfx();
-    // WC 门牌(随 sin 上下浮 ~3px)
-    static int16_t lastSy = -999;
-    const int16_t sw=44, sh=28, sx=120-22;
-    const int16_t syf = 22 + (int16_t)(sinf(now/1100.0f)*3);
-    if (syf != lastSy) {
-        if (lastSy != -999) g.fillRect(sx-1, lastSy-1, sw+2, sh+2, OV_BG);   // 擦旧
-        g.fillRoundRect(sx, syf, sw, sh, 7, OV_WHITE);
-        g.setTextColor(OV_BG); g.setTextSize(2); g.setCursor(sx+6, syf+7); g.print("WC");
+    // WC 门牌:白底圆角牌 + 橙内框(门牌质感) + 顶部挂钉 + 居中 WC。静态(进场画一次)
+    if (s_presDrawn != (int8_t)PRES_TOILET) {
+        const int16_t sw=52, sh=34, sx=120-26, sy=22;
+        g.fillRect(118, sy-6, 4, 8, OV_WHITE);                    // 顶部小挂钉(居中)
+        g.fillRoundRect(sx, sy, sw, sh, 9, OV_WHITE);             // 牌底(白)
+        g.drawRoundRect(sx+3, sy+3, sw-6, sh-6, 6, OV_BG);        // 橙内框(门牌质感)
+        g.setTextColor(OV_BG); g.setTextSize(2);
+        g.setCursor(120-12, sy+10); g.print("WC");               // 居中(size2 约 24px 宽)
         g.setTextSize(1);
-        lastSy = syf;
     }
     // 口哨音符(右侧升起循环;每帧擦旧画新)
     static int16_t pnx=-999, pny=-999;
