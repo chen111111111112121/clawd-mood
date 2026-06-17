@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clawd · 控制台（暖调仪表盘 mockup）</title>
+<style>
+  :root{
+    --bg1:#FBEFE0; --bg2:#F1DEC6;
+    --shell:#FFFDFA; --side:#FBF2E7; --line:#EEE0CE; --line2:#F3E8D9;
+    --ink:#43342A; --muted:#9C8A78; --faint:#BCAB97;
+    --coral:#D97757; --coral-deep:#C4632F; --coral-soft:#FBEEE2;
+    --read:#7FA9A0; --edit:#D97757; --run:#E0A75E; --net:#B98EC9; --other:#C9B49A;
+    --shadow:0 14px 44px rgba(150,95,55,.16);
+    --cardsh:0 4px 16px rgba(150,95,55,.06);
+  }
+  *{box-sizing:border-box}
+  body{ margin:0; min-height:100vh; color:var(--ink);
+        font:15px/1.6 ui-rounded,"SF Pro Rounded","Segoe UI",system-ui,sans-serif;
+        background:radial-gradient(110% 55% at 50% -8%, #FFF6EA 0%, transparent 55%), linear-gradient(165deg,var(--bg1),var(--bg2));
+        display:grid; place-items:center; padding:26px; }
+
+  /* App 外壳 */
+  .shell{ width:100%; max-width:1060px; min-height:648px; display:flex;
+          background:var(--shell); border:1px solid var(--line); border-radius:26px; box-shadow:var(--shadow); overflow:hidden; }
+
+  /* 侧边栏 */
+  .side{ width:212px; flex:0 0 auto; background:var(--side); border-right:1px solid var(--line);
+         padding:20px 14px; display:flex; flex-direction:column; }
+  .brand{ display:flex; align-items:center; gap:10px; padding:4px 8px 18px; }
+  .brand .mark{ width:30px; height:30px; border-radius:9px; background:linear-gradient(160deg,#E8915F,#C4632F);
+                display:grid; place-items:center; box-shadow:0 3px 8px rgba(196,99,47,.3); }
+  .brand .mark svg{ width:18px; height:18px; }
+  .brand .t{ font-weight:800; font-size:16px; letter-spacing:.2px; }
+  .brand .t small{ display:block; font-size:10.5px; font-weight:600; color:var(--faint); letter-spacing:.06em; }
+
+  .navlabel{ font-size:10.5px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint); font-weight:700; margin:14px 10px 7px; }
+  .nav a{ display:flex; align-items:center; gap:11px; padding:10px 11px; border-radius:12px; margin-bottom:3px;
+          color:#6E5D4E; text-decoration:none; font-size:14px; font-weight:600; cursor:pointer; transition:.15s; }
+  .nav a svg{ width:18px; height:18px; opacity:.7; }
+  .nav a:hover{ background:#F5E8D8; }
+  .nav a.on{ background:var(--coral-soft); color:var(--coral-deep); }
+  .nav a.on svg{ opacity:1; }
+
+  .side .foot{ margin-top:auto; padding:11px 12px; border-radius:13px; background:#FFFDFA; border:1px solid var(--line2); }
+  .side .foot .row{ display:flex; align-items:center; gap:8px; font-size:12px; }
+  .side .foot .dot{ width:8px; height:8px; border-radius:50%; background:#3FAE7A; box-shadow:0 0 0 3px #E3F3EA; }
+  .side .foot .ip{ font-size:11.5px; color:var(--faint); margin-top:4px; }
+
+  /* 主区 */
+  .main{ flex:1; padding:24px 30px 30px; min-width:0; }
+  .head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:20px; }
+  .head h1{ margin:0; font-size:24px; font-weight:800; letter-spacing:.2px; }
+  .head .date{ font-size:13px; color:var(--faint); }
+
+  .grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  .card{ background:var(--shell); border:1px solid var(--line); border-radius:18px; box-shadow:var(--cardsh); padding:18px 20px; }
+  .span2{ grid-column:1 / -1; }
+  .ctitle{ font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); font-weight:700; margin:0 0 12px; }
+
+  /* 陪伴时长卡 */
+  .hero{ display:flex; align-items:center; justify-content:space-between; gap:24px; }
+  .hero .lead{ font-size:12.5px; color:var(--coral-deep); font-weight:700; }
+  .hero .time{ margin:6px 0 3px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .hero .time .v{ font-size:54px; } .hero .time .u{ font-size:24px; color:var(--coral); margin:0 9px 0 3px; }
+  .hero .focus{ font-size:13px; color:var(--muted); } .hero .focus b{ color:var(--coral-deep); }
+  .hero .right{ flex:0 0 auto; text-align:center; }
+  .mood{ width:64px; height:64px; border-radius:50%; margin:0 auto 8px;
+         background:radial-gradient(circle at 38% 32%,#FBE7D2,#F1CBA8);
+         display:grid; place-items:center; box-shadow:inset 0 -4px 11px rgba(196,99,47,.16); }
+  .mood svg{ width:44px; height:44px; }
+  .mood .eye{ transform-origin:center; animation:blink 5s infinite; }
+  @keyframes blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+  .mood + .cap{ font-size:11.5px; color:var(--faint); }
+
+  .axis{ margin-top:18px; }
+  .axis .track{ height:8px; border-radius:99px; background:#F1E6D6; overflow:hidden; }
+  .axis .fill{ height:100%; width:0; border-radius:99px; background:linear-gradient(90deg,#EBB98B,var(--coral)); transition:width 1.1s cubic-bezier(.2,.8,.2,1); }
+  .axis .ends{ display:flex; justify-content:space-between; margin-top:7px; font-size:11.5px; color:var(--faint); }
+  .axis .ends b{ color:var(--muted); }
+
+  /* 数字小卡 */
+  .tile .n{ font-size:34px; font-weight:800; letter-spacing:-1px; line-height:1; }
+  .tile .l{ font-size:12.5px; color:var(--muted); margin-top:7px; }
+  .tile .sub{ font-size:11.5px; color:var(--faint); margin-top:2px; }
+
+  /* 环形 */
+  .work .body{ display:flex; align-items:center; gap:26px; }
+  .ring{ width:126px; height:126px; flex:0 0 auto; position:relative; }
+  .ring svg{ transform:rotate(-90deg); }
+  .ring .seg{ fill:none; stroke-width:15; stroke-linecap:round; transition:stroke-dasharray 1s cubic-bezier(.2,.8,.2,1); }
+  .ring .center{ position:absolute; inset:0; display:grid; place-content:center; text-align:center; }
+  .ring .center .big{ font-size:29px; font-weight:800; line-height:1; }
+  .ring .center .cap{ font-size:11px; color:var(--muted); margin-top:3px; }
+  .legend{ flex:1; display:grid; grid-template-columns:1fr 1fr; gap:9px 20px; }
+  .legend .row{ display:flex; align-items:center; font-size:13.5px; }
+  .legend .dot{ width:10px; height:10px; border-radius:3px; margin-right:9px; }
+  .legend .row .v{ margin-left:auto; color:var(--muted); font-variant-numeric:tabular-nums; }
+
+  @media(max-width:880px){
+    .shell{ flex-direction:column; min-height:0; }
+    .side{ width:auto; border-right:none; border-bottom:1px solid var(--line); }
+    .nav{ display:flex; flex-wrap:wrap; gap:4px; } .nav a{ margin:0; } .navlabel,.side .foot{ display:none; }
+    .grid{ grid-template-columns:1fr; }
+  }
+  .mocktag{ position:fixed; top:10px; right:12px; font-size:11px; color:var(--faint); }
+</style>
+</head>
+<body>
+<div class="mocktag">mockup · 假数据</div>
+
+<div class="shell">
+  <!-- 侧边栏 -->
+  <aside class="side">
+    <div class="brand">
+      <span class="mark"><svg viewBox="0 0 20 20" fill="none"><rect x="4" y="6" width="12" height="9" rx="2" fill="#F4E4C8"/><rect x="6.6" y="9" width="2" height="3.4" rx="1" fill="#6E4A33"/><rect x="11.4" y="9" width="2" height="3.4" rx="1" fill="#6E4A33"/></svg></span>
+      <span class="t">Clawd<small>桌面陪伴控制台</small></span>
+    </div>
+
+    <div class="navlabel">概览</div>
+    <nav class="nav">
+      <a class="on"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 17s-5.5-3.6-5.5-7.5A3 3 0 0 1 10 7a3 3 0 0 1 5.5 2.5C15.5 13.4 10 17 10 17z"/></svg>今日陪伴</a>
+      <a><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11l8-8 1.5 1.5L10 8h6l-8 8-1.5-1.5L10 11H4z"/></svg>趋势历史</a>
+    </nav>
+
+    <div class="navlabel">设置</div>
+    <nav class="nav">
+      <a><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M11 3 3 11l3 3 8-8z"/><path d="M13 5l2-2 2 2-2 2"/></svg>工具绑定</a>
+      <a><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="14" height="9" rx="1.5"/><path d="M7 17h6M10 13v4"/></svg>设备连接</a>
+      <a><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h12M4 13h12"/><circle cx="8" cy="7" r="2" fill="var(--side)"/><circle cx="13" cy="13" r="2" fill="var(--side)"/></svg>偏好设置</a>
+    </nav>
+
+    <div class="foot">
+      <div class="row"><span class="dot"></span>设备已连接</div>
+      <div class="ip">192.168.130.110</div>
+    </div>
+  </aside>
+
+  <!-- 主区：今日陪伴 -->
+  <main class="main">
+    <div class="head">
+      <h1>今日陪伴</h1>
+      <div class="date">6月16日 · 周一</div>
+    </div>
+
+    <div class="grid">
+      <!-- 陪伴时长 -->
+      <section class="card span2">
+        <div class="hero">
+          <div>
+            <div class="lead">它陪你的时间</div>
+            <div class="time"><span class="v" id="h">0</span><span class="u">h</span><span class="v" id="m">0</span><span class="u">m</span></div>
+            <div class="focus">最长连续专注 <b id="focus">52m</b></div>
+          </div>
+          <div class="right">
+            <div class="mood"><svg viewBox="0 0 40 40">
+              <g fill="#6E4A33"><ellipse class="eye" cx="15" cy="19" rx="2.7" ry="4"/><ellipse class="eye" cx="25" cy="19" rx="2.7" ry="4"/></g>
+              <path d="M15 27 q5 3.6 10 0" fill="none" stroke="#6E4A33" stroke-width="1.8" stroke-linecap="round"/>
+            </svg></div>
+            <div class="cap">Clawd 状态良好</div>
+          </div>
+        </div>
+        <div class="axis">
+          <div class="track"><div class="fill" id="axisfill"></div></div>
+          <div class="ends"><span>第一次 <b>09:14</b></span><span>最近 <b>18:30</b></span></div>
+        </div>
+      </section>
+
+      <!-- 会话 / 提问 -->
+      <section class="card tile"><div class="n" id="sess">0</div><div class="l">会话</div><div class="sub">今天开启的对话</div></section>
+      <section class="card tile"><div class="n" id="ask">0</div><div class="l">提问</div><div class="sub">你向 Clawd 发起的请求</div></section>
+
+      <!-- 工作类型 -->
+      <section class="card work span2">
+        <p class="ctitle">今天在忙什么</p>
+        <div class="body">
+          <div class="ring">
+            <svg width="126" height="126" viewBox="0 0 126 126"><g id="ring"></g></svg>
+            <div class="center"><div class="big" id="total">0</div><div class="cap">工具调用</div></div>
+          </div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+  const data = {
+    hours:3, mins:12, sessions:6, asks:41, axisPct:62,
+    work:[
+      {k:'读取',  v:54, c:'var(--read)'},
+      {k:'编辑',  v:38, c:'var(--edit)'},
+      {k:'跑命令',v:22, c:'var(--run)'},
+      {k:'上网',  v:9,  c:'var(--net)'},
+      {k:'其他',  v:5,  c:'var(--other)'},
+    ],
+  };
+  function countUp(id,to){ const el=document.getElementById(id); let n=0;
+    const step=Math.max(1,Math.round(to/26));
+    const t=setInterval(()=>{n=Math.min(to,n+step);el.textContent=n;if(n>=to)clearInterval(t);},26); }
+  countUp('h',data.hours); countUp('m',data.mins); countUp('sess',data.sessions); countUp('ask',data.asks);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ document.getElementById('axisfill').style.width=data.axisPct+'%'; }));
+
+  const total=data.work.reduce((s,w)=>s+w.v,0); countUp('total',total);
+  const R=50, C=2*Math.PI*R, GAP=6, ring=document.getElementById('ring'), legend=document.getElementById('legend');
+  let off=0;
+  data.work.forEach(w=>{
+    const len=Math.max(0,(w.v/total)*C-GAP);
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('class','seg'); c.setAttribute('cx',63); c.setAttribute('cy',63); c.setAttribute('r',R);
+    c.setAttribute('stroke',w.c); c.setAttribute('stroke-dasharray',`0 ${C}`); c.setAttribute('stroke-dashoffset',-off);
+    ring.appendChild(c);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{ c.setAttribute('stroke-dasharray',`${len} ${C-len}`); }));
+    off += (w.v/total)*C;
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<span class="dot" style="background:${w.c}"></span>${w.k}<span class="v">${w.v}</span>`;
+    legend.appendChild(row);
+  });
+</script>
+</body>
+</html>
