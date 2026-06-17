@@ -1111,8 +1111,13 @@ static void drawMeetingScene(uint32_t now) {
         g.fillRect(120-15, sy+sh+8, 30, 3, C_PAD);
         lastActive = -1;
     }
-    if (active != lastActive) {                        // 发言绿框:擦旧(画回 tile 底色)、描新
-        if (lastActive >= 0) { int tx,ty; tilePos(lastActive,tx,ty); g.drawRect(tx+1,ty+1,tw-2,th-2,C_TILE); }
+    if (active != lastActive) {                        // 发言绿框:重画上一 tile(连小人)抹掉绿框,避免圆角残留;描新
+        if (lastActive >= 0) {
+            int tx,ty; tilePos(lastActive,tx,ty);
+            g.fillRoundRect(tx,ty,tw,th,2,C_TILE);
+            g.fillCircle(tx+tw/2, ty+(int)(th*0.40f), (int)(th*0.19f), C_MAN);
+            g.fillRoundRect(tx+tw/2-(int)(tw*0.27f), ty+(int)(th*0.60f), (int)(tw*0.54f), (int)(th*0.36f), 2, C_MAN);
+        }
         int tx,ty; tilePos(active,tx,ty); g.drawRect(tx+1,ty+1,tw-2,th-2,C_SPK);
         lastActive = active;
     }
