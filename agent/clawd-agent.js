@@ -97,6 +97,25 @@ function deviceTest() {
   });
 }
 
+function todayStr(now = Date.now()) {
+  const d = new Date(now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 读当天 jsonl,逐行解析跳过坏行;缺文件→空数组
+function readEvents(date, dir = configDir()) {
+  let raw;
+  try { raw = fs.readFileSync(path.join(dir, `events-${date}.jsonl`), 'utf8'); }
+  catch (_) { return []; }
+  const out = [];
+  for (const line of raw.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    try { out.push(JSON.parse(t)); } catch (_) { /* 跳过坏行 */ }
+  }
+  return out;
+}
+
 // 把当天事件流聚合成「今日陪伴」摘要(纯函数,便于测试)
 function aggregateEvents(events, gap = IDLE_GAP_MS) {
   const evs = (events || [])
@@ -157,6 +176,13 @@ function startServer(port = DEFAULT_PORT) {
       const r = await deviceTest();
       rs.writeHead(200, { 'Content-Type': 'application/json' }); rs.end(JSON.stringify(r)); return;
     }
+    if (rq.method === 'GET' && u.pathname === '/today') {
+      const date = u.searchParams.get('date') || todayStr();
+      const summary = aggregateEvents(readEvents(date));
+      rs.writeHead(200, { 'Content-Type': 'application/json' });
+      rs.end(JSON.stringify({ date, ...summary }));
+      return;
+    }
     rs.writeHead(404); rs.end('not found');
   });
   server.listen(port);
@@ -169,4 +195,4 @@ if (require.main === module) {
   console.log(`Clawd Agent 控制台: http://127.0.0.1:${port}`);
 }
 
-module.exports = { configDir, readConfig, writeActiveTool, readState, startServer, resolveDeviceTarget, aggregateEvents, DEFAULT_TOOLS, DEFAULT_PORT };
+module.exports = { configDir, readConfig, writeActiveTool, readState, startServer, resolveDeviceTarget, aggregateEvents, todayStr, readEvents, DEFAULT_TOOLS, DEFAULT_PORT };
