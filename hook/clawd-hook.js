@@ -170,6 +170,22 @@ function touchLastSeen(source, now, dir = configDir()) {
   } catch (_) {}
 }
 
+// 按天事件日志(本地日期);hook 独占写,供控制台「今日陪伴」聚合
+function eventLogPath(now, dir = configDir()) {
+  const d = new Date(now);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return path.join(dir, `events-${y}-${m}-${day}.jsonl`);
+}
+
+function appendEvent(source, event, now, dir = configDir()) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(eventLogPath(now, dir), JSON.stringify({ ts: now, tool: source, event }) + '\n');
+  } catch (_) { /* 静默:埋点绝不影响宿主 AI */ }
+}
+
 function getConfiguredTarget() {
   if (process.env.CLAWD_DEVICE_IP) return process.env.CLAWD_DEVICE_IP.trim();
   try {
@@ -355,6 +371,8 @@ async function main() {
   writeCursorStdout(event);                       // 必须在门控前:Cursor 门控钩子要求始终输出 {"continue":true}
   const source = resolveSource(event);
   if (isGated(readActiveTool(), source)) process.exit(0);   // 非当前绑定工具:静默退出
+  const now = Date.now();
+  appendEvent(source, event, now);                          // 按天事件日志(今日陪伴)
   const state = STATE_MAP[event];
   if (!state) process.exit(0);
   // Notification 误报过滤:日常待命/收尾通知不推 alert,设备保持当前状态
@@ -363,11 +381,11 @@ async function main() {
   }
   const semantics = state === 'working' ? resolveSemantics(payload) : null;
   await pushState(state, semantics);
-  touchLastSeen(source, Date.now());
+  touchLastSeen(source, now);
   process.exit(0);
 }
 
-module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP, buildMdnsQuery, parseMdnsAnswer, readDnsName, isIPv4, notificationIsAlert, resolveSource, readActiveTool, isGated, configDir, touchLastSeen };
+module.exports = { classifyTool, sanitizeInfo, buildStatusUrl, resolveSemantics, STATE_MAP, buildMdnsQuery, parseMdnsAnswer, readDnsName, isIPv4, notificationIsAlert, resolveSource, readActiveTool, isGated, configDir, touchLastSeen, eventLogPath, appendEvent };
 
 if (require.main === module) {
   main().catch(() => process.exit(0));
