@@ -13,6 +13,7 @@ node clawd-agent.js          # 默认端口 6624,可用 CLAWD_AGENT_PORT 覆盖
 ## HTTP 接口
 
 - `GET /today`（可加 `?date=YYYY-MM-DD`，默认当天）：用 20 分钟空闲阈值聚合当天事件日志，返回「今日陪伴」所需数据。
+- `POST /device/presence`(body `{state}`,state∈auto/meeting/toilet/solder/rest):校验后代理到设备 `GET /presence?s=`,并把 `presence` 写入 `agent.json`(面板「状态」页高亮读此)。
 
 ## 给某款工具的 hook 声明来源
 

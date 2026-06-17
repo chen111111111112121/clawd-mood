@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mochi 状态牌 · 4 个手动状态预览</title>
+<style>
+  :root{ --orange:#DA1100; }
+  *{box-sizing:border-box}
+  body{margin:0;background:#15171c;color:#e8e6e3;font:14px/1.5 -apple-system,"Segoe UI",system-ui,sans-serif;
+       display:flex;flex-direction:column;align-items:center;padding:26px 16px 60px;-webkit-font-smoothing:antialiased}
+  h1{font-size:19px;font-weight:650;margin:0 0 4px}
+  .sub{color:#8b8985;font-size:12.5px;margin-bottom:8px;text-align:center;max-width:620px}
+  .sub b{color:#c9c6c2}
+  .ctrlbar{display:flex;gap:14px;align-items:center;margin:10px 0 22px;font-size:12.5px;color:#9a9894}
+  .ctrlbar input[type=range]{accent-color:var(--orange);width:150px}
+  .grid{display:grid;grid-template-columns:repeat(2,auto);gap:30px 34px;justify-content:center}
+  .cell{display:flex;flex-direction:column;align-items:center}
+  .device{position:relative;padding:14px;border-radius:30px;background:linear-gradient(160deg,#3a3d44,#212329 60%,#16181d);
+          box-shadow:0 16px 42px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.08)}
+  .screen-wrap{position:relative;width:220px;height:220px;border-radius:12px;overflow:hidden;background:#000;box-shadow:0 0 0 5px #0c0d10}
+  canvas{display:block;width:220px;height:220px}
+  .name{margin-top:14px;font-size:15px;font-weight:650;color:#f0eeec}
+  .cap{font-size:12px;color:#85837f;margin-top:3px;text-align:center;max-width:240px;line-height:1.55}
+</style>
+</head>
+<body>
+  <h1>Mochi · 手动状态牌（4 个）</h1>
+  <div class="sub">网页一拨即切、设备常驻显示、不超时不被 AI 事件盖。第 5 个「<b>写代码中</b>」= 切回<b>自动(听 AI)</b>，沿用现有 Monitor 行为，故此处不画。</div>
+  <div class="ctrlbar">
+    <label>速度 <input type="range" id="speed" min="0.25" max="2" step="0.05" value="1"></label>
+    <span id="speedV">1.0×</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+<script>
+const ORANGE='#DA1100', BLACK='#000', WHITE='#fff';
+const EYE_W=30, EYE_H=60, LCX=45, RCX=195, ECY=80;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const breathe=(ms,amp,per)=>Math.sin(ms/per*Math.PI*2)*amp;
+
+// ── 复用 falling-asleep 的眼睛画法（带 g 参数版） ──
+function eyeRect(g,cx,cy,w,visH){
+  visH=Math.max(visH,4);
+  const x=cx-w/2,y=cy-visH/2,r=Math.min(w/2,visH/2,13);
+  g.fillStyle=BLACK;g.beginPath();
+  g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+visH,r);g.arcTo(x+w,y+visH,x,y+visH,r);
+  g.arcTo(x,y+visH,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();g.fill();
+}
+// open:1=全开 0=闭；底缘固定，眼皮自上而下
+function drawEye(g,cx,cy,open,w=EYE_W){
+  open=clamp(open,0,1);
+  if(open<=0.12){ // 近闭：平线
+    g.strokeStyle=BLACK;g.lineWidth=7;g.lineCap='round';g.beginPath();
+    const d=lerp(2,7,open/0.12); g.moveTo(cx-w*0.47,cy-d*0.3);g.quadraticCurveTo(cx,cy+d,cx+w*0.47,cy-d*0.3);g.stroke();
+  }else{
+    const visH=EYE_H*open, bottom=cy+EYE_H/2;
+    eyeRect(g,cx,bottom-visH/2,w,visH);
+  }
+}
+// 笑眯眼（向上弯的弧，^_^）
+function eyeSmile(g,cx,cy,w,depth){
+  g.strokeStyle=BLACK;g.lineWidth=7;g.lineCap='round';g.beginPath();
+  g.moveTo(cx-w/2,cy+depth*0.35);g.quadraticCurveTo(cx,cy-depth,cx+w/2,cy+depth*0.35);g.stroke();
+}
+function face(g){ g.fillStyle=ORANGE; g.fillRect(0,0,240,240); }
+function roundRect(g,x,y,w,h,r){ g.beginPath();
+  g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();g.fill(); }
+
+// 慢眨：每 per 毫秒眨一下，dur 内 sin 闭合
+function blink(ms,per,dur){ const c=ms%per; return c<dur?Math.sin(c/dur*Math.PI):0; }
+
+// ───────────────────────── 开会中 ─────────────────────────
+function renderMeeting(g,ms){
+  face(g);
+  // 眼睛：认真低头盯着下方电脑屏，视线在画面里小幅游走 + 偶尔慢眨
+  const open=0.6*(1-blink(ms,4000,240));
+  const scan=Math.sin(ms/1500)*4;
+  const oy=14 + breathe(ms,1.0,3200);
+  drawEye(g,LCX+scan,ECY+oy,open);
+  drawEye(g,RCX+scan,ECY+oy,open);
+
+  // ── 笔记本电脑（在开视频会议）──
+  const sx=64, sy=150, sw=112, sh=46;
+  g.fillStyle='#11161f'; roundRect(g,sx-3,sy-3,sw+6,sh+6,6);     // 屏幕边框
+  g.fillStyle='#0b1b33'; roundRect(g,sx,sy,sw,sh,4);             // 屏幕底（蓝光）
+  // 视频会议宫格 2×3 小头像（发言者绿框轮换）
+  const cols=3, rows=2, gp=4, tw=(sw-gp*(cols+1))/cols, th=(sh-gp*(rows+1))/rows;
+  const active=Math.floor(ms/900)%(cols*rows);
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    const idx=r*cols+c, tx=sx+gp+c*(tw+gp), ty=sy+gp+r*(th+gp);
+    g.fillStyle='#264563'; roundRect(g,tx,ty,tw,th,2);           // tile 底
+    g.fillStyle='#9fb6cf';                                       // 小人：头 + 肩
+    g.beginPath();g.arc(tx+tw/2,ty+th*0.40,th*0.19,0,7);g.fill();
+    roundRect(g,tx+tw/2-tw*0.27,ty+th*0.60,tw*0.54,th*0.36,2);
+    if(idx===active){ g.strokeStyle='#46d27a';g.lineWidth=2;g.strokeRect(tx+1,ty+1,tw-2,th-2); } // 发言高亮
+  }
+  // 键盘底座（透视梯形）
+  g.fillStyle='#2a3140';g.beginPath();
+  g.moveTo(sx-2,sy+sh+3);g.lineTo(sx+sw+2,sy+sh+3);g.lineTo(sx+sw+15,sy+sh+17);g.lineTo(sx-15,sy+sh+17);g.closePath();g.fill();
+  g.fillStyle='#3a4150';g.fillRect(120-15,sy+sh+8,30,3);         // 触控板
+}
+
+// ───────────────────────── 上厕所中 ─────────────────────────
+function renderToilet(g,ms){
+  face(g);
+  // 如释重负的笑眯眼 + 轻轻晃
+  const ox=Math.sin(ms/900)*5;
+  eyeSmile(g,LCX+ox,ECY+6,EYE_W*1.05,12);
+  eyeSmile(g,RCX+ox,ECY+6,EYE_W*1.05,12);
+  // 头顶 WC 门牌（轻微上下浮）
+  const sy=22+Math.sin(ms/1100)*3, sx=120-22, sw=44, sh=28, r=7;
+  g.fillStyle=WHITE;g.beginPath();
+  g.moveTo(sx+r,sy);g.arcTo(sx+sw,sy,sx+sw,sy+sh,r);g.arcTo(sx+sw,sy+sh,sx,sy+sh,r);
+  g.arcTo(sx,sy+sh,sx,sy,r);g.arcTo(sx,sy,sx+sw,sy,r);g.closePath();g.fill();
+  g.fillStyle=ORANGE;g.font='700 18px "Segoe UI",sans-serif';g.textAlign='center';g.textBaseline='middle';
+  g.fillText('WC',120,sy+sh/2+1);g.textAlign='left';g.textBaseline='alphabetic';
+  // 右侧悠闲口哨音符（升起淡出）
+  const t=(ms%1900)/1900;
+  g.save();g.globalAlpha=clamp(1-t,0,1);g.fillStyle=WHITE;
+  const nx=196+Math.sin(t*6)*4, ny=150-t*42;
+  g.fillRect(nx,ny,6,4);g.fillRect(nx+5,ny-12,2,14);
+  g.restore();
+}
+
+// ───────────────────────── 焊板子中 ─────────────────────────
+function renderSolder(g,ms){
+  face(g);
+  // 眼睛：眯眼低头盯着下方板子 + 偶尔小幅移视
+  const jit=Math.sin(ms/220)*4 + Math.sin(ms/90)*1.5;
+  const open=0.42 - 0.06*Math.abs(Math.sin(ms/700));
+  drawEye(g,LCX+jit,ECY+18,open);
+  drawEye(g,RCX+jit,ECY+18,open);
+
+  // 焊点（烙铁尖触点）
+  const jx=118, jy=204;
+  // ── PCB 绿板（底部）：板厚 + 板面 + 走线 + 焊盘 ──
+  const pbX=22, pbY=204, pbW=196, pbH=32;
+  g.fillStyle='#0e2a1a'; g.fillRect(pbX,pbY+4,pbW,pbH);          // 板厚（侧面阴影）
+  g.fillStyle='#1f8a4c'; g.fillRect(pbX,pbY,pbW,pbH-4);          // 板面
+  g.strokeStyle='#cf9b3a'; g.lineWidth=2; g.lineCap='butt';     // 走线
+  g.beginPath();g.moveTo(pbX+18,pbY+20);g.lineTo(74,pbY+20);g.lineTo(96,pbY+11);g.lineTo(jx,pbY+9);g.stroke();
+  g.beginPath();g.moveTo(jx,pbY+9);g.lineTo(150,pbY+9);g.lineTo(170,pbY+22);g.stroke();
+  g.fillStyle='#e6c25a';                                         // 焊盘
+  for(const [px,py] of [[48,pbY+20],[74,pbY+20],[170,pbY+22],[196,pbY+15]]){
+    g.beginPath();g.arc(px,py,3.4,0,7);g.fill();
+  }
+
+  // ── 烙铁（优化）：蓝灰握把(防滑纹+黄铜护圈) → 银杆(高光) → 锥尖【朝下】+ 尖端发热泛橙 ──
+  (function(){
+    const Tx=jx, Ty=jy-2, Hx=210, Hy=150;              // 尖端落在焊点，握把伸向右侧（不挡眼）
+    let ux=Hx-Tx, uy=Hy-Ty; const L=Math.hypot(ux,uy); ux/=L; uy/=L;
+    const px=-uy, py=ux, P=(d)=>[Tx+ux*d, Ty+uy*d];
+    const bar=(d0,d1,w,c)=>{const a=P(d0),b=P(d1);g.strokeStyle=c;g.lineWidth=w;g.lineCap='round';
+      g.beginPath();g.moveTo(a[0],a[1]);g.lineTo(b[0],b[1]);g.stroke();};
+    bar(38,104,14,'#34405e');                          // 握把
+    bar(44,98,4,'#4d5d84');                             // 握把高光
+    g.strokeStyle='#232b3e';g.lineWidth=2;             // 防滑纹
+    for(let d=48;d<=92;d+=9){const c=P(d);g.beginPath();
+      g.moveTo(c[0]+px*7,c[1]+py*7);g.lineTo(c[0]-px*7,c[1]-py*7);g.stroke();}
+    bar(30,38,11,'#caa23a');                            // 黄铜护圈
+    bar(14,30,7,'#cfcfcf');                             // 银杆
+    bar(15,29,3,'#f2f2f2');                             // 银杆高光
+    const b=P(14),e=P(0);                               // 锥尖：实心三角，朝下
+    g.fillStyle='#8f8f8f';g.beginPath();
+    g.moveTo(b[0]+px*3.6,b[1]+py*3.6);g.lineTo(b[0]-px*3.6,b[1]-py*3.6);g.lineTo(e[0],e[1]);g.closePath();g.fill();
+    const h=P(5);                                       // 尖端发热（泛橙）
+    g.fillStyle='rgba(255,140,50,.92)';g.beginPath();
+    g.moveTo(h[0]+px*2.6,h[1]+py*2.6);g.lineTo(h[0]-px*2.6,h[1]-py*2.6);g.lineTo(e[0],e[1]);g.closePath();g.fill();
+  })();
+
+  // 焊点火花（偶发迸一下）
+  if((ms%1400)<160){
+    g.strokeStyle=WHITE;g.lineWidth=2;
+    for(let i=0;i<6;i++){const a=Math.PI+i/6*Math.PI;g.beginPath();
+      g.moveTo(jx+Math.cos(a)*4,201+Math.sin(a)*4);
+      g.lineTo(jx+Math.cos(a)*10,201+Math.sin(a)*10);g.stroke();}
+  }
+  // 焊点升起的烟丝（波浪线）
+  g.strokeStyle='rgba(255,255,255,.45)';g.lineWidth=2.4;g.lineCap='round';
+  g.beginPath();
+  for(let k=0;k<=18;k++){const yy=jy-6-k*3.2; const ph=ms/300+k*0.5;
+    const xx=jx+Math.sin(ph)*(4+k*0.35);
+    if(k===0)g.moveTo(xx,yy);else g.lineTo(xx,yy);}
+  g.stroke();
+}
+
+// ───────────────────────── 休息中 ─────────────────────────
+function renderRest(g,ms){
+  face(g);
+  // 正常睁眼随节拍点头（戴耳机听歌，清醒不带睡意：无半阖眼、无 Zzz）
+  const open=1.0*(1-blink(ms,3600,150));   // 正常睁眼 + 正常眨眼
+  const oy=Math.sin(ms/480)*4 + breathe(ms,1.0,2600);   // 随拍点头
+  const ox=Math.sin(ms/960)*3;
+  drawEye(g,LCX+ox,ECY+oy,open);
+  drawEye(g,RCX+ox,ECY+oy,open);
+
+  // ── 头戴耳机（听音乐；无麦克风）：往上戴、贴合头顶 ──
+  const BAND='#2b2f3a', HI='#4d5570', PAD='#222732', PADIN='#3b4252';
+  g.strokeStyle=BAND;g.lineWidth=11;g.lineCap='round';          // 头梁（贴头顶）
+  g.beginPath();g.moveTo(13,48);g.quadraticCurveTo(120,-6,227,48);g.stroke();
+  g.strokeStyle=HI;g.lineWidth=3;
+  g.beginPath();g.moveTo(20,46);g.quadraticCurveTo(120,2,220,46);g.stroke();
+  g.fillStyle=PAD;  roundRect(g,0,38,28,44,10);  roundRect(g,212,38,28,44,10);  // 耳罩再上移
+  g.fillStyle=PADIN;roundRect(g,5,45,18,30,7);   roundRect(g,217,45,18,30,7);
+
+  // ── 音符从两侧耳罩升起淡出 ──
+  g.fillStyle=WHITE;
+  for(const N of [{bx:16,dir:-1},{bx:224,dir:1}]){
+    const t=((ms + (N.dir>0?1100:0)) % 2200)/2200;
+    g.save();g.globalAlpha=clamp(1-t,0,1);
+    const nx=N.bx + N.dir*(6+t*10) + Math.sin(t*6)*3, ny=58 - t*52;
+    g.fillRect(nx,ny,6,4);g.fillRect(nx+5,ny-12,2,14);   // 八分音符：符头+符干
+    g.fillRect(nx+5,ny-12,7,3);                          // 符旗
+    g.restore();
+  }
+
+  // ── 咖啡杯 + 蒸汽（底部中央）──
+  const cx=130, cy=180, cw=36, ch=24;
+  g.strokeStyle=WHITE;g.lineWidth=3;g.lineJoin='round';
+  g.beginPath();g.moveTo(cx,cy);g.lineTo(cx+cw,cy);g.lineTo(cx+cw-5,cy+ch);g.lineTo(cx+5,cy+ch);g.closePath();g.stroke();
+  g.beginPath();g.arc(cx+cw+4,cy+8,7,-1.2,1.2);g.stroke();   // 把手
+  g.strokeStyle='rgba(255,255,255,.5)';g.lineWidth=2.2;
+  for(let s=0;s<2;s++){ g.beginPath();
+    for(let k=0;k<=12;k++){const yy=cy-4-k*3.2; const ph=ms/360+s*1.4+k*0.55;
+      const xx=cx+12+s*11+Math.sin(ph)*4; if(k===0)g.moveTo(xx,yy);else g.lineTo(xx,yy);}
+    g.stroke(); }
+}
+
+const STATES=[
+  {name:'开会中',  cap:'认真低头盯笔记本，屏上视频会议宫格 + 发言者绿框轮换', fn:renderMeeting},
+  {name:'上厕所中',cap:'如释重负的笑眯眼 + WC 门牌 + 悠闲口哨', fn:renderToilet},
+  {name:'实验室中',cap:'眯眼低头盯板，烙铁尖朝下焊 PCB 绿板，冒烟 + 焊点偶迸火花（内部 id=solder）', fn:renderSolder},
+  {name:'休息中',  cap:'正常睁眼随拍点头听歌 + 两侧飘音符 + 喝咖啡冒汽（不带睡意）', fn:renderRest},
+];
+
+const grid=document.getElementById('grid');
+const cells=STATES.map(s=>{
+  const cell=document.createElement('div');cell.className='cell';
+  cell.innerHTML=`<div class="device"><div class="screen-wrap"><canvas width="240" height="240"></canvas></div></div>
+    <div class="name">${s.name}</div><div class="cap">${s.cap}</div>`;
+  grid.appendChild(cell);
+  return {g:cell.querySelector('canvas').getContext('2d'), fn:s.fn};
+});
+
+let speed=1, acc=0, last=0;
+document.getElementById('speed').oninput=e=>{speed=+e.target.value;
+  document.getElementById('speedV').textContent=speed.toFixed(2).replace(/0$/,'')+'×';};
+function tick(now){
+  if(!last)last=now;
+  acc+=(now-last)*speed;last=now;
+  for(const c of cells) c.fn(c.g, acc);
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
