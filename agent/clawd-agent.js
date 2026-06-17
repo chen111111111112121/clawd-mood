@@ -19,6 +19,10 @@ const DEFAULT_TOOLS = [
   { id: 'cursor', name: 'Cursor', installed: true },
 ];
 
+const IDLE_GAP_MS = 20 * 60 * 1000;                                   // 活跃段空闲阈值
+const SESSION_EVENTS = new Set(['SessionStart']);
+const ASK_EVENTS = new Set(['UserPromptSubmit', 'beforeSubmitPrompt']); // 兼容 cc/cursor
+
 function configDir() {
   return process.env.CLAWD_CONFIG_DIR || path.join(os.homedir(), '.clawd-mood');
 }
@@ -93,6 +97,40 @@ function deviceTest() {
   });
 }
 
+// 把当天事件流聚合成「今日陪伴」摘要(纯函数,便于测试)
+function aggregateEvents(events, gap = IDLE_GAP_MS) {
+  const evs = (events || [])
+    .filter((e) => e && typeof e.ts === 'number')
+    .sort((a, b) => a.ts - b.ts);
+  const out = { tool: null, activeMs: 0, sessions: 0, asks: 0, longestFocusMs: 0,
+                firstTs: null, lastTs: null, naps: [], segments: [] };
+  if (!evs.length) return out;
+  out.firstTs = evs[0].ts;
+  out.lastTs = evs[evs.length - 1].ts;
+
+  const toolCount = {};
+  for (const e of evs) {
+    if (SESSION_EVENTS.has(e.event)) out.sessions++;
+    if (ASK_EVENTS.has(e.event)) out.asks++;
+    if (e.tool) toolCount[e.tool] = (toolCount[e.tool] || 0) + 1;
+  }
+  out.tool = Object.keys(toolCount).sort((a, b) => toolCount[b] - toolCount[a])[0] || null;
+
+  let segStart = evs[0].ts, prev = evs[0].ts;
+  for (let i = 1; i < evs.length; i++) {
+    if (evs[i].ts - prev > gap) {
+      out.segments.push({ start: segStart, end: prev, ms: prev - segStart });
+      out.naps.push({ start: prev, end: evs[i].ts, ms: evs[i].ts - prev });
+      segStart = evs[i].ts;
+    }
+    prev = evs[i].ts;
+  }
+  out.segments.push({ start: segStart, end: prev, ms: prev - segStart });
+  out.activeMs = out.segments.reduce((s, seg) => s + seg.ms, 0);
+  out.longestFocusMs = out.segments.reduce((m, seg) => Math.max(m, seg.ms), 0);
+  return out;
+}
+
 function startServer(port = DEFAULT_PORT) {
   let panel = '<h1>Clawd Agent</h1>';
   try { panel = fs.readFileSync(path.join(__dirname, 'panel.html'), 'utf8'); } catch (_) {}
@@ -131,4 +169,4 @@ if (require.main === module) {
   console.log(`Clawd Agent 控制台: http://127.0.0.1:${port}`);
 }
 
-module.exports = { configDir, readConfig, writeActiveTool, readState, startServer, resolveDeviceTarget, DEFAULT_TOOLS, DEFAULT_PORT };
+module.exports = { configDir, readConfig, writeActiveTool, readState, startServer, resolveDeviceTarget, aggregateEvents, DEFAULT_TOOLS, DEFAULT_PORT };
