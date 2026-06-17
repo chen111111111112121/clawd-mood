@@ -40,15 +40,21 @@ function readConfig(dir = configDir()) {
   }
 }
 
+// 原子写 JSON(temp+rename);Windows 上 rename 偶发 EPERM/EBUSY → 退化为直接覆盖写 + 清 tmp(单写者无竞争)
+function atomicWriteJson(p, obj) {
+  const data = JSON.stringify(obj, null, 2);
+  const tmp = `${p}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, data);
+  try { fs.renameSync(tmp, p); }
+  catch (_) { try { fs.writeFileSync(p, data); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} }
+}
+
 // 面板独占写 agent.json(原子替换)
 function writeActiveTool(tool, dir = configDir()) {
   const cfg = readConfig(dir);
   cfg.activeTool = (typeof tool === 'string' && tool) ? tool : null;
   fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'agent.json');
-  const tmp = `${p}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
-  fs.renameSync(tmp, p);
+  atomicWriteJson(path.join(dir, 'agent.json'), cfg);
   return cfg;
 }
 
@@ -59,11 +65,7 @@ function writePresence(presence, dir = configDir()) {
   const cfg = readConfig(dir);
   cfg.presence = PRESENCE_VALUES.includes(presence) ? presence : 'auto';
   fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, 'agent.json');
-  const tmp = `${p}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
-  try { fs.renameSync(tmp, p); }
-  catch (_) { try { fs.writeFileSync(p, JSON.stringify(cfg, null, 2)); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} }
+  atomicWriteJson(path.join(dir, 'agent.json'), cfg);
   return cfg;
 }
 
