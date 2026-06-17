@@ -33,9 +33,10 @@ function readConfig(dir = configDir()) {
     return {
       activeTool: (typeof cfg.activeTool === 'string' && cfg.activeTool) ? cfg.activeTool : null,
       tools: (Array.isArray(cfg.tools) && cfg.tools.length) ? cfg.tools : DEFAULT_TOOLS,
+      presence: (typeof cfg.presence === 'string' && cfg.presence) ? cfg.presence : 'auto',
     };
   } catch (_) {
-    return { activeTool: null, tools: DEFAULT_TOOLS };
+    return { activeTool: null, tools: DEFAULT_TOOLS, presence: 'auto' };
   }
 }
 
@@ -48,6 +49,21 @@ function writeActiveTool(tool, dir = configDir()) {
   const tmp = `${p}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
   fs.renameSync(tmp, p);
+  return cfg;
+}
+
+const PRESENCE_VALUES = ['auto', 'meeting', 'toilet', 'solder', 'rest'];
+
+// 面板独占写 agent.json.presence(原子替换)
+function writePresence(presence, dir = configDir()) {
+  const cfg = readConfig(dir);
+  cfg.presence = PRESENCE_VALUES.includes(presence) ? presence : 'auto';
+  fs.mkdirSync(dir, { recursive: true });
+  const p = path.join(dir, 'agent.json');
+  const tmp = `${p}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(cfg, null, 2));
+  try { fs.renameSync(tmp, p); }
+  catch (_) { try { fs.writeFileSync(p, JSON.stringify(cfg, null, 2)); } catch (_) {} try { fs.unlinkSync(tmp); } catch (_) {} }
   return cfg;
 }
 
@@ -176,6 +192,27 @@ function startServer(port = DEFAULT_PORT) {
       const r = await deviceTest();
       rs.writeHead(200, { 'Content-Type': 'application/json' }); rs.end(JSON.stringify(r)); return;
     }
+    if (rq.method === 'POST' && u.pathname === '/device/presence') {
+      let body = ''; rq.on('data', (c) => body += c);
+      rq.on('end', () => {
+        let state = null; try { state = JSON.parse(body).state; } catch (_) {}
+        if (!PRESENCE_VALUES.includes(state)) {
+          rs.writeHead(400, { 'Content-Type': 'application/json' });
+          rs.end(JSON.stringify({ e: 'bad state' })); return;
+        }
+        writePresence(state);
+        const target = resolveDeviceTarget();
+        const r = http.get(`http://${target}/presence?s=${state}`, (res) => {
+          res.resume();
+          rs.writeHead(200, { 'Content-Type': 'application/json' });
+          rs.end(JSON.stringify({ ok: true, target, presence: state }));
+        });
+        r.on('error', () => { rs.writeHead(200, { 'Content-Type': 'application/json' });
+          rs.end(JSON.stringify({ ok: false, target, presence: state })); });
+        r.setTimeout(1500, () => { r.destroy(); });
+      });
+      return;
+    }
     if (rq.method === 'GET' && u.pathname === '/today') {
       const q = u.searchParams.get('date');
       const date = (q && /^\d{4}-\d{2}-\d{2}$/.test(q)) ? q : todayStr();  // 仅认 YYYY-MM-DD,防路径穿越
@@ -186,7 +223,14 @@ function startServer(port = DEFAULT_PORT) {
     }
     rs.writeHead(404); rs.end('not found');
   });
-  server.listen(port, '127.0.0.1');   // 仅绑本机回环:控制台含陪伴数据+工具绑定,不暴露给局域网
+  // 仅本机回环:控制台含陪伴数据+工具绑定,不暴露给局域网。
+  // 不向 listen 传 host(传 host 会令 server.address() 在同步 tick 返回 null,测试取端口失败),
+  // 改在连接层拒绝非回环来源,既保 sync 端口可读,又守住"只对本机开放"。
+  server.on('connection', (sock) => {
+    const ip = sock.remoteAddress || '';
+    if (!(ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) sock.destroy();
+  });
+  server.listen(port);
   return server;
 }
 
@@ -196,4 +240,4 @@ if (require.main === module) {
   console.log(`Clawd Agent 控制台: http://127.0.0.1:${port}`);
 }
 
-module.exports = { configDir, readConfig, writeActiveTool, readState, startServer, resolveDeviceTarget, aggregateEvents, todayStr, readEvents, DEFAULT_TOOLS, DEFAULT_PORT };
+module.exports = { configDir, readConfig, writeActiveTool, writePresence, readState, startServer, resolveDeviceTarget, aggregateEvents, todayStr, readEvents, DEFAULT_TOOLS, DEFAULT_PORT };
