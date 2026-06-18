@@ -41,7 +41,7 @@ class _NativeFilter(QAbstractNativeEventFilter):
         if event_type != b"windows_generic_MSG":
             return False, 0
         msg = wintypes.MSG.from_address(int(message))
-        if msg.hwnd != self.hwnd:
+        if msg.hWnd != self.hwnd:  # 注:ctypes wintypes.MSG 字段名是 hWnd(驼峰)
             return False, 0
         if msg.message == WM_NCCALCSIZE:
             # 客户区占满整窗 = 去掉系统非客户区边框
