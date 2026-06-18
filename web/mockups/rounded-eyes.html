@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Clawd Mochi · 圆角眼睛预览</title>
+<style>
+  body{margin:0;min-height:100vh;background:linear-gradient(160deg,#2a2320,#171310);
+    color:#f0e6da;font:14px/1.6 ui-rounded,"Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;gap:22px;padding:30px}
+  h1{font-size:18px;font-weight:800;margin:0}
+  .stage{display:flex;gap:30px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  .dev{display:flex;flex-direction:column;align-items:center;gap:8px}
+  canvas{border-radius:18px;box-shadow:0 16px 40px rgba(0,0,0,.5);image-rendering:pixelated}
+  .cap{font-size:12px;color:#9b8c7c}
+  .panel{background:#211b17;border:1px solid #3a302a;border-radius:14px;padding:18px 22px;
+    width:300px;display:flex;flex-direction:column;gap:16px}
+  .row{display:flex;flex-direction:column;gap:6px}
+  .row label{font-size:12px;font-weight:700;color:#c9b8a4;display:flex;justify-content:space-between}
+  .row label b{color:#E8915F}
+  input[type=range]{width:100%;accent-color:#D97757}
+  .btns{display:flex;gap:8px;flex-wrap:wrap}
+  button{font:inherit;font-size:12.5px;font-weight:700;border:1px solid #3a302a;background:#2a221d;
+    color:#d9c9b6;border-radius:9px;padding:7px 12px;cursor:pointer}
+  button.on{background:#3a2a20;color:#E8915F;border-color:#5a3f2e}
+  .note{font-size:11.5px;color:#8a7b6c;line-height:1.5}
+</style>
+</head>
+<body>
+  <h1>圆角眼睛预览（实时 · 含眨眼/扫视/呼吸 + 眯眼/睡眼）</h1>
+  <div class="stage">
+    <div class="dev">
+      <canvas id="cv" width="240" height="240" style="width:300px;height:300px"></canvas>
+      <div class="cap">240×240 真机比例（放大显示）· 脸色=品牌橙 · 眼=黑</div>
+    </div>
+    <div class="panel">
+      <div class="row">
+        <label>圆角半径 <b><span id="rval">8</span> px</b></label>
+        <input type="range" id="radius" min="0" max="15" value="8">
+        <div class="note">0 = 现在的纯直角；越大越圆。半径会按当前眼高自动收敛（眯眼/眨眼时不会过圆）。</div>
+      </div>
+      <div class="row">
+        <label>姿态预览</label>
+        <div class="btns">
+          <button data-pose="normal" class="on">普通</button>
+          <button data-pose="think">思考(眯)</button>
+          <button data-pose="run">运行(窄)</button>
+          <button data-pose="blink">连续眨眼</button>
+        </div>
+      </div>
+      <div class="note">拖动滑块挑一个你喜欢的圆角值告诉我，我就照这个值改固件（IDF eyes_render 的 STYLE_RECT，
+      用小 sprite 合成单眼防止移动时四角残留）。</div>
+    </div>
+  </div>
+
+<script>
+const cv=document.getElementById('cv'), g=cv.getContext('2d');
+const FACE='#DA1100', EYE='#000000';
+const EYE_W=30, EYE_H=60, GAP=120;
+const LX=(240-(EYE_W*2+GAP))/2, RX=LX+EYE_W+GAP, EY=(240-EYE_H)/2-40+ (40); // y top
+// 上面与固件一致:eyeY=(240-60)/2-40=50
+const EYE_TOP=50, CY=80;
+let radius=8, pose='normal', t=0;
+let nextBlink=0, blinkF=0;        // 0=未眨, 1..7 进行中
+const BLINK_H=[1.06,0.60,0.08,0.08,0.70,1.04,1.00];
+const BLINK_W=[0.97,1.05,1.18,1.18,1.03,0.98,1.00];
+
+document.getElementById('radius').oninput=e=>{radius=+e.target.value;document.getElementById('rval').textContent=radius;};
+document.querySelectorAll('[data-pose]').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('[data-pose]').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); pose=b.dataset.pose;
+});
+
+function rr(x,y,w,h,r){
+  r=Math.max(0,Math.min(r, Math.min(w,h)/2));
+  g.beginPath();
+  g.moveTo(x+r,y);
+  g.arcTo(x+w,y,x+w,y+h,r);
+  g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r);
+  g.arcTo(x,y,x+w,y,r);
+  g.closePath();g.fill();
+}
+
+function frame(){
+  t+=1;
+  g.fillStyle=FACE; g.fillRect(0,0,240,240);
+
+  // 基础姿态
+  let w=EYE_W, h=EYE_H, oy=0, ox=0, lid=0;
+  if(pose==='think'){ h=30; oy=10; }
+  if(pose==='run'){ w=14; h=44; }
+
+  // 呼吸
+  oy += Math.sin(t/22)*1.5;
+  // 扫视(普通/思考偶尔横移)
+  if(pose==='normal'||pose==='think'){ ox = Math.round(Math.sin(t/60)*6); }
+
+  // 眨眼
+  if(pose==='blink'){ if(blinkF===0 && t>nextBlink){blinkF=1;} }
+  else { if(blinkF===0 && t>nextBlink){blinkF=1; nextBlink=t+90+Math.random()*120;} }
+  let bw=1, bh=1;
+  if(blinkF>0){ bw=BLINK_W[blinkF-1]; bh=BLINK_H[blinkF-1]; if(t%3===0){blinkF++; if(blinkF>7){blinkF=0; if(pose==='blink')nextBlink=t+10;}} }
+  let ew=Math.round(w*bw), eh=Math.round(h*bh);
+  if(eh<4)eh=4;
+
+  const cy=CY+oy;
+  const top=cy-eh/2;
+  g.fillStyle=EYE;
+  // 半径按当前眼高收敛
+  rr(LX+ox+(EYE_W-ew)/2, top, ew, eh, radius);
+  rr(RX+ox+(EYE_W-ew)/2, top, ew, eh, radius);
+
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

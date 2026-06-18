@@ -1,4 +1,5 @@
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "display.hpp"
 #include "eyes.hpp"
@@ -30,6 +31,11 @@ extern "C" void app_main(void)
 
     netsvc::wifi_init();   // AP 常开 + 有 NVS 凭据则连 STA
     netsvc::http_start();  // /status 路由（Hook 推状态切表情）
+
+    // 开机/配网信息屏:显示 AP/控制器地址 + 家庭 WiFi 状态,引导配网。
+    // STA 连接是异步的,此刻多半未连上 → 常驻;tickBootInfo 在后台连上后给 3s 确认再进表情。
+    const uint32_t bootNow = (uint32_t)(esp_timer_get_time() / 1000);
+    monitor::enterBootInfo(bootNow, netsvc::sta_connected(), netsvc::sta_ip());
 
     render_task_start();
 }

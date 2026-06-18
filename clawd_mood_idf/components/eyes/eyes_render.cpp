@@ -75,6 +75,29 @@ static void blitBitmapEye(const uint8_t* bmp, uint8_t n, int16_t cx, int16_t cy,
     out = {x0, y0, W, H, true};
 }
 
+// 圆角眼半径（STYLE_RECT 普通眼）。半径按当前眼高自动收敛，眨眼/眯眼时不会过圆。
+static constexpr int16_t EYE_CORNER_R = 8;
+
+// 圆角单眼：小 sprite 内合成（底色 + 圆角黑眼）一次推屏 → 眼睛移动时四角无残留、无闪烁。
+// 直接 fillRoundRect 到屏上时，圆角四角是底色(不绘)，眼一移动旧黑角会残留；故走 sprite。
+static void drawRoundEye(int16_t x, int16_t y, int16_t w, int16_t h) {
+    auto& g = display::gfx();
+    if (w < 1 || h < 1) return;
+    int16_t r = EYE_CORNER_R;
+    const int16_t rmax = (w < h ? w : h) / 2;
+    if (r > rmax) r = rmax;
+    lgfx::LGFX_Sprite cv(&g);
+    cv.setColorDepth(16);
+    if (cv.createSprite(w, h)) {
+        cv.fillScreen(s_bgColor);
+        cv.fillRoundRect(0, 0, w, h, r, C_BLACK);
+        cv.pushSprite(x, y);
+        cv.deleteSprite();
+    } else {
+        g.fillRoundRect(x, y, w, h, r, C_BLACK);   // 分配失败兜底（可能轻微残留，但不崩）
+    }
+}
+
 // ── 单眼绘制：按 drawnStyle 分派 ──（col 传 s_bgColor 即"按字形精确擦除"）
 void drawRigEye(int16_t cx, int16_t cy, int16_t w, int16_t h, int16_t lid,
                 bool rightFacing, uint16_t col, EyeRect& out) {
@@ -196,11 +219,11 @@ void drawRig() {
         const int16_t lx = rigLCX(ox) - w / 2;
         const int16_t rx = rigRCX(ox) - w / 2;
         if (rig.prevValid) {
-            eraseRectOutside(rig.prevL, lx, topL, w, visL);
+            eraseRectOutside(rig.prevL, lx, topL, w, visL);   // 清掉旧框露出的边条
             eraseRectOutside(rig.prevR, rx, topR, w, visR);
         }
-        g.fillRect(lx, topL, w, visL, C_BLACK);
-        g.fillRect(rx, topR, w, visR, C_BLACK);
+        drawRoundEye(lx, topL, w, visL);   // 圆角眼（sprite 合成，重叠区整块重画含四角底色）
+        drawRoundEye(rx, topR, w, visR);
         rig.prevL = {lx, topL, w, visL, true};
         rig.prevR = {rx, topR, w, visR, true};
     } else if (rig.drawnStyle == STYLE_HEART || rig.drawnStyle == STYLE_STAR) {

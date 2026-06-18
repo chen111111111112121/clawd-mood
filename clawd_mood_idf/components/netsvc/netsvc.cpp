@@ -9,8 +9,13 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
+#include "esp_mac.h"
+#include "esp_app_desc.h"
 #include "mdns.h"
 #include "nvs.h"
+
+// 固件版本=单一可信来源:工程根 version.txt → IDF 烤进 app 镜像(esp_app_desc),
+// /info 读 esp_app_get_description()->version。改版本只动 version.txt 再重编,全程一致不漂移。
 
 // 配网页（移植自 .ino INDEX_HTML）：手机连 AP 后浏览器填家庭 WiFi。
 static const char INDEX_HTML[] = R"rawhtml(<!doctype html><html lang="zh"><head>
@@ -200,6 +205,23 @@ esp_err_t h_root(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// 设备信息:供上位机展示「当前版本」并(后续)做版本比对。id=STA MAC 十六进制。
+esp_err_t h_info(httpd_req_t* req) {
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    const esp_app_desc_t* desc = esp_app_get_description();   // 版本来自烤进二进制的 app 描述
+    char body[220];
+    snprintf(body, sizeof(body),
+             "{\"name\":\"clawd-mochi\",\"version\":\"%s\",\"chip\":\"esp32c3\","
+             "\"id\":\"%02x%02x%02x%02x%02x%02x\","
+             "\"caps\":[\"monitor\",\"mood\",\"sleep\",\"presence\",\"bootinfo\"]}",
+             desc->version, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_sendstr(req, body);
+    return ESP_OK;
+}
+
 esp_err_t h_wifi_save(httpd_req_t* req) {
     char q[256] = {0}, rs[48] = {0}, rp[96] = {0}, ssid[33] = {0}, pass[65] = {0};
     if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK) {
@@ -280,7 +302,9 @@ void http_start() {
     httpd_register_uri_handler(srv, &u_root);
     httpd_uri_t u_save = { .uri = "/wifi/save", .method = HTTP_GET, .handler = h_wifi_save, .user_ctx = nullptr };
     httpd_register_uri_handler(srv, &u_save);
-    ESP_LOGI(TAG, "HTTP up: / /status /presence /wifi/save");
+    httpd_uri_t u_info = { .uri = "/info", .method = HTTP_GET, .handler = h_info, .user_ctx = nullptr };
+    httpd_register_uri_handler(srv, &u_info);
+    ESP_LOGI(TAG, "HTTP up: / /info /status /presence /wifi/save");
 }
 
 bool sta_connected() { return s_staConnected; }

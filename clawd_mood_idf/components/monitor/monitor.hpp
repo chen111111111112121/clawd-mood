@@ -30,6 +30,24 @@ namespace monitor {
 // 开机问候动画（阻塞 ~2.3s，纯 display 直绘）。须在 display::init() 之后、eyes::init() 之前调。
 void bootGreeting();
 
+// ── 开机/配网信息屏（移植自 .ino VIEW_BOOTINFO / drawWifiScreen）──
+// 在屏上显示 AP 名/密码/控制器地址(192.168.4.1) + 家庭 WiFi 连接状态，引导用户配网。
+// WiFi 状态由调用方(main, 读 netsvc)传入，故 monitor 不依赖 netsvc(避免与 netsvc→monitor 成环)。
+//
+// 进入信息屏:已连上家庭 WiFi→显示绿色 IP，3s 后自动进表情；未连上→常驻等配网。
+// now 为单调毫秒(= render task 的时基)。http_start() 后调一次。
+void enterBootInfo(uint32_t now, bool staConnected, const char* staIp);
+
+// 信息屏期间每帧推进(由 render task 在 eyes 之前调)：
+//   - 收到 /status 或 /presence 推送 → 立即离屏进 Monitor；
+//   - 后台 STA 连上/掉线 → 刷新信息屏(连上则给 3s 确认倒计时)；
+//   - 确认倒计时到 → 自动离屏进 Monitor。
+// 仍在信息屏时调用方应跳过 eyes 绘制(见 bootInfoActive)。
+void tickBootInfo(uint32_t now, bool staConnected, const char* staIp);
+
+// 当前是否处于信息屏(true 时 render task 跳过 eyes::tick/draw/drawOverlays)。
+bool bootInfoActive();
+
 // 初始化：snap 到普通表情、起 idle 轮播。须在 eyes::init() 与 mood::init() 之后调。
 void init();
 

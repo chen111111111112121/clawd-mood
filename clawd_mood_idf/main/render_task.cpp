@@ -5,6 +5,7 @@
 #include "freertos/task.h"
 #include "eyes.hpp"
 #include "monitor.hpp"
+#include "netsvc.hpp"
 
 static const char *TAG = "render";
 
@@ -17,6 +18,15 @@ static void renderTask(void *arg)
 
     for (;;) {
         const uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+
+        // 开机/配网信息屏:仍在屏时占用整屏,跳过 eyes 渲染(状态变化由 tickBootInfo 自刷新)
+        monitor::tickBootInfo(now, netsvc::sta_connected(), netsvc::sta_ip());
+        if (monitor::bootInfoActive()) {
+            frames++;
+            vTaskDelayUntil(&lastWake, period);
+            continue;
+        }
+
         monitor::tick(now);   // 推进 mood/idle 轮播/行为脚本/睡眠 → eyes
         eyes::tick(now);
         eyes::draw();

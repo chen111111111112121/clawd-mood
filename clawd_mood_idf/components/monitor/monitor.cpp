@@ -23,7 +23,7 @@
 #define EDIT_COLS 17   // 打字机 edit 表情每行格数
 
 // thinking/working 无新事件多久自动回 idle（容长思考/长回答的纯生成阶段）
-#define STATUS_TIMEOUT_MS 180000
+#define STATUS_TIMEOUT_MS 300000
 
 // edit 打字机书写带几何（移植自 .ino）
 #define EDIT_CELL_W  12
@@ -510,6 +510,7 @@ static void applyPresencePending(uint32_t now) {
     if (np == PRES_NONE) {
         idlePhaseMs = 0; idleShowingOther = false; s_idleExpr = IDLE_NORMAL;
         sleepScriptMs = 0; sleepStage = SLEEP_AWAKE; sleepClosed = false; sleepInited = false;
+        mood::resetSleepiness();   // 清零困意:否则切回工作中后下一帧 sleepiness 仍≥阈值会立刻又入睡
         s_state = MON_IDLE;
         applyExpression(true);
     } else if (np == PRES_MEETING) {
@@ -1115,6 +1116,8 @@ static void drawMeetingScene(uint32_t now) {
         g.fillTriangle(sx-2,sy+sh+3, sx+sw+2,sy+sh+3, sx+sw+15,sy+sh+17, C_KB);
         g.fillTriangle(sx-2,sy+sh+3, sx+sw+15,sy+sh+17, sx-15,sy+sh+17, C_KB);
         g.fillRect(120-15, sy+sh+8, 30, 3, C_PAD);
+        g.fillRoundRect(84, 12, 72, 34, 10, OV_WHITE);   // 聊天气泡:顶部居中白底(静态)
+        g.fillTriangle(114, 45, 126, 45, 120, 56, OV_WHITE);  // 气泡尾巴(朝下指向会议)
         lastActive = -1;
     }
     if (active != lastActive) {                        // 发言绿框:重画上一 tile(连小人)抹掉绿框,避免圆角残留;描新
@@ -1127,6 +1130,19 @@ static void drawMeetingScene(uint32_t now) {
         int tx,ty; tilePos(active,tx,ty); g.drawRect(tx+1,ty+1,tw-2,th-2,C_SPK);
         lastActive = active;
     }
+    // 聊天气泡打字三点(依次跳动):小 sprite 合成后一次推屏 → 不啃气泡白底、不闪。区域在气泡内,x98..142 y18..36
+    { const int16_t RX=98, RY=18, RW=44, RH=18, dcy=29;
+      const uint16_t C_DOT=rgb565(38,69,99);
+      lgfx::LGFX_Sprite cv(&g); cv.setColorDepth(16);
+      if (cv.createSprite(RW, RH)) {
+          cv.fillScreen(OV_WHITE);
+          for (int i=0;i<3;i++){
+              float up = sinf(now/180.0f - i*0.7f); if (up<0) up=0;
+              cv.fillCircle(104+i*16-RX, dcy-(int16_t)(up*5)-RY, 4, C_DOT);
+          }
+          cv.pushSprite(RX, RY);
+          cv.deleteSprite();
+      } }
 }
 // 上厕所中:WC 门牌(静态,消闪) + 悠闲口哨音符升起(脏区重画)。眼睛由 rig 处理(笑眯眼)。
 static void drawToiletScene(uint32_t now) {
@@ -1284,6 +1300,56 @@ static void drawPresenceScene(uint32_t now) {
     }
     s_presDrawn = (int8_t)s_presence;
 }
+
+// ═══════════════════ 开机/配网信息屏（移植自 .ino drawWifiScreen） ═══════════════════
+constexpr uint32_t BOOT_CONFIRM_MS = 3000;   // 已连上家庭 WiFi:显示 IP 确认 3s 后进表情
+bool     s_bootInfo     = false;             // 当前是否在信息屏
+uint32_t s_bootDeadline = 0;                 // >0=确认倒计时(仅"已连上"用);0=常驻
+bool     s_bootPrevSta  = false;             // 上次已知 STA 连接态(变化→刷新信息屏)
+
+// 一次性整屏绘制信息屏(静态;仅进入/状态变化时重画,避免逐帧闪烁)
+static void drawBootScreen(bool sta, const char* ip, uint32_t autoLeaveMs) {
+    auto& g = display::gfx();
+    g.fillScreen(C_DARKBG);
+    g.fillRect(0, 0, DISP_W, 4, OV_BG);                     // 顶部品牌橙条
+    g.setTextColor(OV_WHITE); g.setTextSize(2);
+    g.setCursor(12, 16);  g.print("WiFi: ClaWD-Mood");
+    g.setTextColor(C_MUTED); g.setTextSize(1);
+    g.setCursor(12, 44);  g.print("password: clawd1234");
+    g.setTextColor(OV_WHITE); g.setTextSize(1);
+    g.setCursor(12, 62);  g.print("Controller:");
+    g.setTextColor(OV_BG); g.setTextSize(2);
+    g.setCursor(12, 78);  g.print("192.168.4.1");
+    g.setTextColor(OV_WHITE); g.setTextSize(1);
+    g.setCursor(12, 108); g.print("Home WiFi:");
+    if (sta) {
+        g.setTextColor(C_GREEN); g.setTextSize(2);
+        g.setCursor(12, 124); g.print(ip && ip[0] ? ip : "connected");
+        g.setTextColor(C_GREEN); g.setTextSize(1);
+        g.setCursor(12, 148); g.print("or  http://clawd.local");
+        g.setTextColor(C_MUTED); g.setTextSize(1);
+        g.setCursor(12, 162); g.print("Hook: /status?s=...");
+    } else {
+        g.setTextColor(C_MUTED); g.setTextSize(1);
+        g.setCursor(12, 124); g.print("not connected");
+        g.setCursor(12, 140); g.print("configure in web portal");
+    }
+    g.setTextColor(C_MUTED); g.setTextSize(1);
+    g.setCursor(12, 210);
+    if (autoLeaveMs)   { g.print("auto start in "); g.print((int)(autoLeaveMs / 1000)); g.print("s ..."); }
+    else if (!sta)     { g.print("waiting for WiFi setup ..."); }
+    else               { g.print("starting ..."); }
+    g.setTextSize(1);
+}
+
+// 离开信息屏 → 进入 Monitor:抹掉深色信息屏、复位场景缓存、snap 眼睛 → 整区重画一帧干净表情。
+static void leaveBootInfo() {
+    s_bootInfo = false;
+    s_bootDeadline = 0;
+    display::gfx().fillScreen(OV_BG);   // 信息屏底是 C_DARKBG,换回脸色橙
+    s_presDrawn = -1;                   // presence 场景(若有)强制重画
+    applyExpression(true);             // snap 到当前状态基线 → zoneDirty 全区重画
+}
 } // namespace
 
 namespace monitor {
@@ -1295,10 +1361,16 @@ void bootGreeting() {
     const int16_t lx = LCX - EYE_W / 2, rx = RCX - EYE_W / 2;   // 眼左上 x = 30 / 180
     const int16_t ey = EYECY - EYE_H / 2, ecy = EYECY;          // 眼顶 y = 50 / 眼中心 = 80
     const int16_t bw = 26, bh = 12, by = 116;                   // 腮红块
+    // 圆角眼(与 rig 普通眼一致 8px,半径按眼高收敛)。睁开是"只增不减覆盖":每帧更大的圆角矩形
+    // 完整盖住上一帧(同 y 处更大圆角更宽)→ 既圆角又保持原 grow-only 防闪特性。
+    auto roundEye = [&](int16_t x, int16_t y, int16_t w, int16_t h) {
+        int16_t r = 8; const int16_t rmax = (w < h ? w : h) / 2; if (r > rmax) r = rmax;
+        g.fillRoundRect(x, y, w, h, r, OV_BLACK);
+    };
 
     g.fillScreen(OV_BG);
-    g.fillRect(lx, ecy - 3, EYE_W, 6, OV_BLACK);               // 1) 闭眼细线
-    g.fillRect(rx, ecy - 3, EYE_W, 6, OV_BLACK);
+    roundEye(lx, ecy - 3, EYE_W, 6);                           // 1) 闭眼细线
+    roundEye(rx, ecy - 3, EYE_W, 6);
     vTaskDelay(pdMS_TO_TICKS(200));
 
     const uint8_t OPEN_STEPS = 18;                              // 2) ease-out 睁开（只增不减覆盖，无闪）
@@ -1308,8 +1380,8 @@ void bootGreeting() {
         int16_t vis = 6 + (int16_t)((EYE_H - 6) * e);
         if (vis > EYE_H) vis = EYE_H;
         const int16_t top = ecy - vis / 2;
-        g.fillRect(lx, top, EYE_W, vis, OV_BLACK);
-        g.fillRect(rx, top, EYE_W, vis, OV_BLACK);
+        roundEye(lx, top, EYE_W, vis);
+        roundEye(rx, top, EYE_W, vis);
         vTaskDelay(pdMS_TO_TICKS(55));
     }
 
@@ -1326,9 +1398,31 @@ void bootGreeting() {
     g.fillRect(rx, ey, EYE_W, (ecy - 3) - ey, OV_BG);          // 右眼闭：只擦上下两条细缝
     g.fillRect(rx, ecy + 3, EYE_W, (ey + EYE_H) - (ecy + 3), OV_BG);
     vTaskDelay(pdMS_TO_TICKS(170));
-    g.fillRect(rx, ey, EYE_W, EYE_H, OV_BLACK);                // 右眼睁回：黑块覆盖
+    roundEye(rx, ey, EYE_W, EYE_H);                            // 右眼睁回：圆角黑块覆盖
     vTaskDelay(pdMS_TO_TICKS(500));                            // 5) 定格
 }
+
+// ── 开机/配网信息屏对外接口 ──
+void enterBootInfo(uint32_t now, bool staConnected, const char* staIp) {
+    s_bootInfo     = true;
+    s_bootPrevSta  = staConnected;
+    // 已连上家庭 WiFi(含开机即连上的快路径):给 3s 确认倒计时;未连上:常驻(deadline=0)等配网
+    s_bootDeadline = staConnected ? (now + BOOT_CONFIRM_MS) : 0;
+    drawBootScreen(staConnected, staIp, s_bootDeadline ? BOOT_CONFIRM_MS : 0);
+}
+
+void tickBootInfo(uint32_t now, bool staConnected, const char* staIp) {
+    if (!s_bootInfo) return;
+    if (s_pending || s_presPending) { leaveBootInfo(); return; }   // hook/presence 推送 → 立即上线
+    if (staConnected != s_bootPrevSta) {                           // 后台连上/掉线 → 刷新信息屏
+        s_bootPrevSta  = staConnected;
+        s_bootDeadline = staConnected ? (now + BOOT_CONFIRM_MS) : 0;
+        drawBootScreen(staConnected, staIp, staConnected ? BOOT_CONFIRM_MS : 0);
+    }
+    if (s_bootDeadline && now >= s_bootDeadline) { leaveBootInfo(); return; }   // 确认倒计时到 → 上线
+}
+
+bool bootInfoActive() { return s_bootInfo; }
 
 void init() {
     s_state = MON_IDLE;
