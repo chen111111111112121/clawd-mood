@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 132">
+  <defs>
+    <g id="face">
+      <path d="M26 30 Q30 8 42 11 Q50 14 52 30 Z" fill="#F4E8D4" stroke="#F4E8D4" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M74 30 Q70 8 58 11 Q50 14 48 30 Z" fill="#F4E8D4" stroke="#F4E8D4" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M33 27 Q36 16 42 18 Q47 20 48 27 Z" fill="#EBA7AE"/>
+      <path d="M67 27 Q64 16 58 18 Q53 20 52 27 Z" fill="#EBA7AE"/>
+      <rect x="14" y="24" width="72" height="64" rx="20" fill="#F4E8D4"/>
+      <rect x="24" y="40" width="52" height="44" rx="12" fill="#E3AC4F"/>
+      <rect x="28" y="44" width="44" height="36" rx="9" fill="#F1C84E"/>
+      <rect x="40" y="56" width="8" height="9" rx="2" fill="#3A332C"/>
+      <rect x="52" y="56" width="8" height="9" rx="2" fill="#3A332C"/>
+    </g>
+  </defs>
+  <text x="4" y="100" font-family="Segoe UI, 'Microsoft YaHei UI', sans-serif" font-size="118" font-weight="800" fill="#43342A">m</text>
+  <use href="#face" transform="translate(96,38) scale(0.66)"/>
+  <use href="#face" transform="translate(168,38) scale(0.66)"/>
+  <text x="244" y="100" font-family="Segoe UI, 'Microsoft YaHei UI', sans-serif" font-size="118" font-weight="800" fill="#43342A">d</text>
+</svg>

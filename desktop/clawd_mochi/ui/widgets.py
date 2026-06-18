@@ -1,147 +1,70 @@
-"""可复用 UI 组件：MOOD 字标、hero 猫脸、卡片、可选列表行、单选点、活动 pill。"""
-from PySide6.QtCore import Qt, QTimer, QVariantAnimation, QPointF, QRectF, Signal
-from PySide6.QtGui import QPainter, QColor, QFont, QPen, QBrush, QLinearGradient, QRadialGradient
+"""可复用 UI 组件：mood 字标、hero 形象(电视机小猫)、卡片、可选列表行、单选点、活动 pill。"""
+import os
+
+from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtGui import QPainter, QColor, QFont, QPen, QFontMetrics
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout, QSizePolicy,
+    QWidget, QFrame, QLabel, QHBoxLayout, QVBoxLayout,
 )
 
 from clawd_mochi.ui import icons, theme
 
-
-class _Blinker:
-    """给自绘控件加偶发眨眼：_open 在 1↔0.1 之间。"""
-
-    def _init_blink(self, period_ms: int = 5200):
-        self._open = 1.0
-        self._anim = None
-        self._t = QTimer(self)
-        self._t.timeout.connect(self._do_blink)
-        self._t.start(period_ms)
-
-    def _do_blink(self):
-        a = QVariantAnimation(self)
-        a.setDuration(170)
-        a.setKeyValueAt(0.0, 1.0)
-        a.setKeyValueAt(0.5, 0.1)
-        a.setKeyValueAt(1.0, 1.0)
-        a.valueChanged.connect(self._on_blink)
-        a.start()
-        self._anim = a  # 持引用防 GC
-
-    def _on_blink(self, v):
-        self._open = float(v)
-        self.update()
+_ASSETS = os.path.join(os.path.dirname(__file__), "assets")
 
 
-class MoodWordmark(QWidget, _Blinker):
-    """品牌字标：M + 两只会眨的眼睛(O) + 字母 D + 腮红点。"""
+def _asset(name: str) -> str:
+    return os.path.join(_ASSETS, name)
 
-    def __init__(self):
+
+class MoodWordmark(QWidget):
+    """品牌字标 mood：m + 两张猫脸(logo) + d，两个 o = 两只 mood。"""
+
+    def __init__(self, height: int = 42):
         super().__init__()
-        self.setFixedSize(146, 48)
-        self._init_blink()
+        self._svg = QSvgRenderer(_asset("mood-logo.svg"))
+        self._font = QFont("Segoe UI")
+        self._font.setPixelSize(round(height * 0.9))
+        self._font.setWeight(QFont.ExtraBold)
+        fm = QFontMetrics(self._font)
+        self._mw = fm.horizontalAdvance("m")
+        self._dw = fm.horizontalAdvance("d")
+        self._face = round(height * 0.58)
+        gap = round(height * 0.03)
+        pad = round(height * 0.06)
+        self._baseline = round(height * 0.8)
+        self._x_m = pad
+        self._x_f1 = self._x_m + self._mw + gap
+        self._x_f2 = self._x_f1 + self._face + gap
+        self._x_d = self._x_f2 + self._face + gap
+        self.setFixedSize(self._x_d + self._dw + pad, height)
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        coral = QColor(theme.CORAL_DEEP)
-
-        f = QFont("Segoe UI", 26)
-        f.setWeight(QFont.Black)
-        p.setFont(f)
-        p.setPen(coral)
-        from PySide6.QtGui import QFontMetricsF
-        fm = QFontMetricsF(f)
-        cap = fm.capHeight()
-        baseline = self.height() / 2 + cap / 2
-        eye_cy = baseline - cap / 2
-        d = cap * 0.86          # 眼睛直径
-        gap = 3
-        x = 2.0
-
-        # M
-        p.drawText(QPointF(x, baseline), "M")
-        x += fm.horizontalAdvance("M") + gap + 2
-
-        # 两只眼睛
-        for _i in range(2):
-            self._eye(p, x + d / 2, eye_cy, d / 2, coral)
-            x += d + gap
-
-        x += 1
-        # D（眼睛绘制后 pen 被设为 NoPen，需恢复，否则文字不显示）
-        p.setPen(coral)
-        p.setFont(f)
-        p.drawText(QPointF(x, baseline), "D")
-        dw = fm.horizontalAdvance("D")
-        # 腮红点（D 右下）
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#F3B8A0"))
-        p.drawEllipse(QPointF(x + dw + 4, baseline - 2), 2.6, 2.6)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.setFont(self._font)
+        p.setPen(QColor(theme.INK))
+        p.drawText(self._x_m, self._baseline, "m")
+        p.drawText(self._x_d, self._baseline, "d")
+        top = self._baseline - self._face
+        self._svg.render(p, QRectF(self._x_f1, top, self._face, self._face))
+        self._svg.render(p, QRectF(self._x_f2, top, self._face, self._face))
         p.end()
 
-    def _eye(self, p, cx, cy, r, coral):
-        pen = QPen(coral, max(2.0, r * 0.42))
-        p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
-        ry = r * self._open
-        if ry < r * 0.18:        # 几乎闭合 → 画一条横线
-            p.drawLine(QPointF(cx - r, cy), QPointF(cx + r, cy))
-            return
-        p.drawEllipse(QPointF(cx, cy), r, ry)
-        # 瞳孔
-        if self._open > 0.6:
-            p.setPen(Qt.NoPen)
-            p.setBrush(coral)
-            p.drawEllipse(QPointF(cx, cy + r * 0.18), r * 0.34, r * 0.34 * self._open)
 
-
-class MoodFace(QWidget, _Blinker):
-    """hero 圆脸：渐变底 + 两只会眨的眼睛 + 微笑 + 腮红。"""
+class MoodFace(QWidget):
+    """hero 形象：电视机小猫 mood（矢量），替代旧笑脸。"""
 
     def __init__(self, size: int = 78):
         super().__init__()
         self.setFixedSize(size, size)
-        self._init_blink(4800)
+        self._svg = QSvgRenderer(_asset("mood-mascot.svg"))
 
     def paintEvent(self, _):
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
-        w = self.width()
-        g = QRadialGradient(w * 0.38, w * 0.32, w * 0.75)
-        g.setColorAt(0, QColor("#FBE7D2"))
-        g.setColorAt(1, QColor("#F1CBA8"))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(g))
-        p.drawEllipse(0, 0, w, w)
-
-        coral = QColor(theme.CORAL_DEEP)
-        eye_y = w * 0.44
-        ex = w * 0.30
-        r = w * 0.085
-        for cx in (w / 2 - ex, w / 2 + ex):
-            ry = r * 2.2 * self._open
-            p.setPen(Qt.NoPen)
-            p.setBrush(coral)
-            if ry < r * 0.5:
-                pen = QPen(coral, r * 0.7)
-                pen.setCapStyle(Qt.RoundCap)
-                p.setPen(pen)
-                p.drawLine(QPointF(cx - r, eye_y), QPointF(cx + r, eye_y))
-            else:
-                p.drawEllipse(QPointF(cx, eye_y), r, ry)
-        # 微笑
-        pen = QPen(coral, w * 0.05)
-        pen.setCapStyle(Qt.RoundCap)
-        p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
-        smile = QRectF(w * 0.36, w * 0.5, w * 0.28, w * 0.22)
-        p.drawArc(smile, 200 * 16, 140 * 16)
-        # 腮红
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#F3B8A0"))
-        p.drawEllipse(QPointF(w * 0.24, w * 0.58), w * 0.055, w * 0.055)
-        p.drawEllipse(QPointF(w * 0.76, w * 0.58), w * 0.055, w * 0.055)
+        self._svg.render(p, QRectF(0, 0, self.width(), self.height()))
         p.end()
 
 
