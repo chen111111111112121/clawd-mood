@@ -1,3 +1,4 @@
+import os
 import sys
 
 from PySide6.QtGui import QIcon, QAction
@@ -7,8 +8,9 @@ from clawd_mochi.ui.main_window import MainWindow
 from clawd_mochi.ui import theme, icons
 
 
-def _tray_icon() -> QIcon:
-    return QIcon(icons.pixmap("presence", 32, theme.CORAL_DEEP))
+def _logo_icon() -> QIcon:
+    path = os.path.join(os.path.dirname(__file__), "assets", "mood-logo.svg")
+    return QIcon(path)
 
 
 def main():
@@ -18,9 +20,10 @@ def main():
     app.setQuitOnLastWindowClosed(False)  # 关窗后驻留托盘
 
     win = MainWindow()
+    win.setWindowIcon(_logo_icon())
     win.show()
 
-    tray = QSystemTrayIcon(_tray_icon(), app)
+    tray = QSystemTrayIcon(_logo_icon(), app)
     tray.setToolTip("Mood 控制台")
     menu = QMenu()
     act_show = QAction("打开控制台", app)
