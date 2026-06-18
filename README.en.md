@@ -1,8 +1,14 @@
 <p align="center">
-  <img src="pics/banner-mood.svg" alt="Clawd Mood" width="100%">
+  <img src="brand/png/mood-mascot-512.png" alt="mood — a little TV cat" width="180">
+</p>
+
+<p align="center">
+  <img src="brand/png/mood-wordmark-712x256.png" alt="mood" width="240">
 </p>
 
 <h1 align="center">Clawd Mood</h1>
+
+<p align="center"><sub>Your desktop AI work buddy · a pixel heart, always with you</sub></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/MCU-ESP32--C3-orange" alt="ESP32-C3">

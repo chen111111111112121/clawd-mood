@@ -1,8 +1,14 @@
 <p align="center">
-  <img src="pics/banner-mood.svg" alt="Clawd Mood" width="100%">
+  <img src="brand/png/mood-mascot-512.png" alt="mood — 电视机小猫" width="180">
+</p>
+
+<p align="center">
+  <img src="brand/png/mood-wordmark-712x256.png" alt="mood" width="240">
 </p>
 
 <h1 align="center">Clawd Mood</h1>
+
+<p align="center"><sub>桌面 AI 办公搭子 · 像素心，伴你行</sub></p>
 
 
 
