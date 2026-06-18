@@ -10,6 +10,7 @@ from clawd_mochi.ui.widgets import MoodWordmark
 from clawd_mochi.ui.today_page import TodayPage
 from clawd_mochi.ui.bind_page import BindPage
 from clawd_mochi.ui.presence_page import PresencePage
+from clawd_mochi.ui.firmware_page import FirmwarePage
 from clawd_mochi.ui.settings_page import SettingsPage
 
 # (导航文本, 页属性名, 图标名)
@@ -17,6 +18,7 @@ _NAV = [
     ("今日陪伴", "today", "today"),
     ("状态", "presence", "presence"),
     ("工具绑定", "bind", "bind"),
+    ("固件升级", "firmware", "firmware"),
     ("设置", "settings", "settings"),
 ]
 
@@ -38,8 +40,9 @@ class MainWindow(QWidget):
         self.today = TodayPage()
         self.presence = PresencePage()
         self.bind = BindPage()
+        self.firmware = FirmwarePage()
         self.settings = SettingsPage()
-        for w in (self.today, self.presence, self.bind, self.settings):
+        for w in (self.today, self.presence, self.bind, self.firmware, self.settings):
             self._pages.addWidget(w)
         root.addWidget(self._pages, 1)
 

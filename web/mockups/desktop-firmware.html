@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Clawd Mochi 上位机 · 固件升级页 mockup</title>
+<style>
+  :root{
+    --bg1:#FBEFE0; --bg2:#F1DEC6; --shell:#FFFDFA; --side:#FBF2E7;
+    --line:#EEE0CE; --line2:#F3E8D9; --ink:#43342A; --muted:#9C8A78; --faint:#BCAB97;
+    --coral:#D97757; --coral-deep:#C4632F; --coral-soft:#FBEEE2;
+    --ok:#3FAE7A; --okbg:#E3F3EA; --bad:#E0705F; --badbg:#F7E2DD;
+    --warn:#C98A2E; --warnbg:#F8EED6;
+    --cardsh:0 4px 16px rgba(150,95,55,.07);
+  }
+  *{box-sizing:border-box; -webkit-font-smoothing:antialiased}
+  body{ margin:0; min-height:100vh; color:var(--ink);
+    font:14px/1.6 ui-rounded,"Segoe UI",system-ui,sans-serif;
+    background:linear-gradient(160deg,#EAD9C4,#D9C3A6); display:grid; place-items:center; padding:30px; }
+  .win{ width:980px; border-radius:14px; overflow:hidden; box-shadow:0 30px 80px rgba(90,55,30,.34);
+    border:1px solid rgba(120,80,50,.2); background:var(--shell); }
+  .titlebar{ height:38px; display:flex; align-items:center; gap:8px; padding:0 14px;
+    background:linear-gradient(#FBF1E4,#F3E5D2); border-bottom:1px solid var(--line); }
+  .traffic{ display:flex; gap:8px; } .traffic i{ width:12px; height:12px; border-radius:50%; display:block; }
+  .traffic .r{ background:#ED6A5E } .traffic .y{ background:#F4BF50 } .traffic .g{ background:#61C554 }
+  .titlebar .tt{ font-size:12.5px; font-weight:700; color:var(--muted); margin-left:6px; }
+  .body{ display:flex; min-height:566px; }
+
+  /* 侧栏（简化，仅为语境；高亮固件升级项） */
+  .side{ width:208px; flex:0 0 auto; background:var(--side); border-right:1px solid var(--line);
+    padding:18px 13px; display:flex; flex-direction:column; }
+  .wm{ font-size:27px; font-weight:900; letter-spacing:2px; line-height:1; padding:4px 6px 18px;
+    background:linear-gradient(155deg,#E8915F,#C4632F); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .navlabel{ font-size:10px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint); font-weight:700; margin:10px 8px 6px; }
+  .nav button{ display:flex; align-items:center; gap:11px; width:100%; padding:10px 11px; border-radius:11px; margin-bottom:3px;
+    color:#6E5D4E; border:0; background:transparent; font:inherit; font-size:13.5px; font-weight:600; cursor:pointer; text-align:left; }
+  .nav button.on{ background:var(--coral-soft); color:var(--coral-deep); box-shadow:inset 0 0 0 1px #F0D9C2; }
+  .nav .ico{ width:18px; text-align:center; opacity:.7; }
+  .foot{ margin-top:auto; padding:11px 12px; border-radius:13px; background:#FFFDFA; border:1px solid var(--line2); box-shadow:var(--cardsh); }
+  .foot .row{ display:flex; align-items:center; gap:8px; font-size:12.5px; font-weight:600; }
+  .foot .dot{ width:9px; height:9px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px var(--okbg); }
+  .foot .ip{ font-size:11px; color:var(--faint); margin:5px 0 0; }
+
+  /* 主区 */
+  .main{ flex:1; padding:24px 30px 28px; min-width:0; background:radial-gradient(120% 60% at 100% -10%, #FFF7EC 0%, transparent 50%); }
+  .head h1{ margin:0; font-size:23px; font-weight:800; letter-spacing:-.3px; }
+  .head .sub{ font-size:12.5px; color:var(--faint); margin-top:3px; }
+  .card{ background:var(--shell); border:1px solid var(--line); border-radius:16px; box-shadow:var(--cardsh); padding:18px 20px; margin-top:16px; }
+
+  /* 版本对比双 tile */
+  .vers{ display:grid; grid-template-columns:1fr auto 1fr; gap:14px; align-items:stretch; }
+  .vtile{ background:#FFFDFA; border:1px solid var(--line2); border-radius:13px; padding:14px 16px; }
+  .vtile .k{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); font-weight:700; }
+  .vtile .v{ font-size:25px; font-weight:800; letter-spacing:-.5px; margin-top:4px; }
+  .vtile .meta{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .vtile.cur .v{ color:var(--ink); } .vtile.pkg .v{ color:var(--coral-deep); }
+  .arrow{ align-self:center; color:var(--faint); font-size:22px; }
+
+  /* 端口选择行 */
+  .portrow{ display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .portrow label{ font-size:12.5px; color:var(--muted); font-weight:700; white-space:nowrap; }
+  select,.fakeselect{ flex:1; font:inherit; font-size:13px; color:var(--ink); background:#FFFDFA;
+    border:1px solid var(--line); border-radius:9px; padding:8px 11px; }
+  .iconbtn{ font:inherit; font-size:12px; font-weight:700; color:var(--coral-deep); background:var(--coral-soft);
+    border:1px solid var(--line); border-radius:9px; padding:8px 12px; cursor:pointer; white-space:nowrap; }
+
+  /* 主操作按钮 */
+  .actions{ display:flex; gap:10px; align-items:center; margin-top:16px; }
+  .btn{ font:inherit; font-size:14px; font-weight:800; border-radius:11px; padding:11px 22px; cursor:pointer; border:0; }
+  .btn.primary{ background:linear-gradient(155deg,#E8915F,#C4632F); color:#fff; box-shadow:0 6px 16px rgba(196,99,47,.3); }
+  .btn.primary:disabled{ filter:grayscale(.5) opacity(.55); cursor:not-allowed; box-shadow:none; }
+  .btn.ghost{ background:#FFFDFA; border:1px solid var(--line); color:var(--muted); font-weight:700; }
+  .hint{ font-size:12px; color:var(--faint); }
+
+  /* 进度条 */
+  .prog{ margin-top:16px; }
+  .progbar{ height:12px; border-radius:7px; background:#F1E4D2; overflow:hidden; border:1px solid var(--line2); }
+  .progfill{ height:100%; width:0; border-radius:7px; background:linear-gradient(90deg,#E8915F,#C4632F); transition:width .3s; }
+  .progmeta{ display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted); margin-top:6px; font-weight:600; }
+
+  /* 状态横幅 */
+  .banner{ margin-top:14px; border-radius:11px; padding:11px 14px; font-size:13px; font-weight:600; display:none; align-items:center; gap:9px; }
+  .banner.ok{ background:var(--okbg); color:#1F7A4D; } .banner.bad{ background:var(--badbg); color:#A8402E; }
+  .banner.warn{ background:var(--warnbg); color:#8A5E16; } .banner.show{ display:flex; }
+
+  /* 日志控制台 */
+  .log{ margin-top:14px; background:#2C231C; color:#E9D9C6; border-radius:11px; padding:12px 14px;
+    font:11.5px/1.55 "Cascadia Code",Consolas,monospace; height:128px; overflow:auto; white-space:pre-wrap; }
+  .log .ok{ color:#8FD9A8 } .log .warn{ color:#F0C674 } .log .dim{ color:#A78E76 }
+
+  /* mockup 状态切换条 */
+  .switcher{ width:980px; margin-bottom:14px; background:rgba(255,253,250,.9); border:1px solid var(--line);
+    border-radius:14px; padding:11px 18px; display:flex; gap:10px; align-items:center; box-shadow:0 10px 30px rgba(90,55,30,.16); }
+  .switcher b{ font-size:12px; color:var(--coral-deep); letter-spacing:.05em; margin-right:6px; }
+  .switcher button{ font:inherit; font-size:12.5px; font-weight:700; border:1px solid var(--line); background:#FFFDFA;
+    color:var(--muted); border-radius:9px; padding:6px 13px; cursor:pointer; }
+  .switcher button.on{ background:var(--coral-soft); color:var(--coral-deep); border-color:#F0D9C2; }
+</style>
+</head>
+<body>
+  <div class="switcher">
+    <b>预览状态</b>
+    <button data-s="idle" class="on">就绪</button>
+    <button data-s="flashing">刷写中</button>
+    <button data-s="done">成功</button>
+    <button data-s="error">失败</button>
+    <button data-s="noport">无端口</button>
+    <button data-s="offline">设备离线</button>
+  </div>
+
+  <div class="win">
+    <div class="titlebar"><div class="traffic"><i class="r"></i><i class="y"></i><i class="g"></i></div><div class="tt">Mood</div></div>
+    <div class="body">
+      <div class="side">
+        <div class="wm">MOOD</div>
+        <div class="navlabel">导航</div>
+        <div class="nav">
+          <button><span class="ico">☀</span>今日陪伴</button>
+          <button><span class="ico">◐</span>状态</button>
+          <button><span class="ico">⚲</span>工具绑定</button>
+          <button class="on"><span class="ico">⬆</span>固件升级</button>
+          <button><span class="ico">⚙</span>设置</button>
+        </div>
+        <div class="foot">
+          <div class="row"><span class="dot"></span>设备：已连接</div>
+          <div class="ip">192.168.130.110</div>
+        </div>
+      </div>
+
+      <div class="main">
+        <div class="head">
+          <h1>固件升级</h1>
+        </div>
+
+        <div class="card">
+          <!-- 设备当前版本 -->
+          <div class="vers" style="grid-template-columns:1fr">
+            <div class="vtile cur"><div class="k">设备当前版本</div><div class="v" id="curv">v0.9.0</div><div class="meta" id="curm">esp32c3 · 读自 /info</div></div>
+          </div>
+
+          <div class="portrow" style="margin-top:16px">
+            <label>串口设备</label>
+            <select id="port"><option>COM7 — USB JTAG/serial debug unit (Espressif) ★</option><option>COM3 — USB Serial</option></select>
+            <button class="iconbtn" onclick="event.preventDefault()">↻ 刷新</button>
+          </div>
+
+          <div class="portrow" style="margin-top:10px">
+            <label>升级固件</label>
+            <input class="fakeselect" value="clawd-mochi-app-v1.0.0.bin  (v1.0.0)" readonly>
+            <button class="iconbtn" onclick="event.preventDefault()">选择文件…</button>
+          </div>
+
+          <div class="actions">
+            <button class="btn primary" id="flashbtn">刷写固件</button>
+          </div>
+
+          <!-- 进度 -->
+          <div class="prog" id="prog" style="display:none">
+            <div class="progbar"><div class="progfill" id="fill"></div></div>
+            <div class="progmeta"><span id="stage">正在写入应用分区 @0x10000…</span><span id="pct">62%</span></div>
+          </div>
+
+          <!-- 状态横幅 -->
+          <div class="banner ok" id="b-ok">✅ 刷写完成，设备已重启。可拔线，等待开机问候。</div>
+          <div class="banner bad" id="b-bad">❌ 刷写失败：串口被占用（端口 COM7 已被其它程序打开）。关闭占用程序后重试。</div>
+          <div class="banner warn" id="b-noport">⚠ 未检测到串口设备。用 USB 数据线（非充电线）连接 Mochi，再点「刷新」。</div>
+          <div class="banner warn" id="b-offline">⚠ 设备未在局域网上线，当前版本未知；刷写不受影响，仍可继续。</div>
+
+          <!-- 日志 -->
+          <div class="log" id="log"><span class="dim">$ esptool --chip esp32c3 -p COM7 write_flash ...</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  const states = {
+    idle:    { prog:0,  flash:'就绪', btn:false, hint:'写入 app 分区 @0x10000，保留 WiFi/情绪配置，约 20–40 秒', banner:null,
+               log:'<span class="dim">$ 已就绪，选择串口后点「刷写固件」</span>' },
+    flashing:{ prog:62, flash:'刷写中…', btn:true, hint:'刷写中，请勿拔线…', banner:null,
+               log:'<span class="dim">$ esptool --chip esp32c3 -p COM7 write_flash</span>\n<span class="ok">Connecting...... done</span>\nWriting bootloader @0x0  <span class="ok">done</span>\nWriting partition-table @0x8000  <span class="ok">done</span>\nWriting app @0x10000  62%' },
+    done:    { prog:100,flash:'刷写固件', btn:false, hint:'完成', banner:'b-ok',
+               log:'Writing app @0x10000  <span class="ok">100%</span>\n<span class="ok">Hash of data verified.</span>\nHard resetting via RTS pin...\n<span class="ok">✓ 完成</span>' },
+    error:   { prog:38, flash:'刷写固件', btn:false, hint:'失败，可重试', banner:'b-bad',
+               log:'<span class="dim">$ esptool ... write_flash</span>\n<span class="warn">A serial exception error occurred: could not open port COM7</span>\n<span class="warn">✗ 刷写中断</span>' },
+    noport:  { prog:0,  flash:'刷写固件', btn:true, hint:'未检测到串口', banner:'b-noport',
+               log:'<span class="dim">$ 未发现串口设备</span>' },
+    offline: { prog:0,  flash:'刷写固件', btn:false, hint:'设备离线（仍可刷写）', banner:'b-offline',
+               log:'<span class="dim">$ 设备 /info 不可达，当前版本未知</span>', cur:'未知', curm:'设备未上线' },
+  };
+  function apply(s){
+    const c = states[s];
+    $('#fill').style.width = c.prog+'%'; $('#pct').textContent = c.prog+'%';
+    $('#prog').style.display = (s==='flashing'||s==='done'||s==='error') ? 'block':'none';
+    $('#flashbtn').textContent = c.flash; $('#flashbtn').disabled = c.btn;
+    document.querySelectorAll('.banner').forEach(b=>b.classList.remove('show'));
+    if(c.banner) $('#'+c.banner).classList.add('show');
+    $('#log').innerHTML = c.log;
+    $('#curv').textContent = c.cur || 'v0.9.0';
+    $('#curm').textContent = c.curm || 'esp32c3 · 读自 /info';
+    $('#stage').textContent = s==='done' ? '完成' : '正在写入应用分区 @0x10000…';
+  }
+  document.querySelectorAll('.switcher button').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.switcher button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); apply(b.dataset.s);
+  }));
+  apply('idle');
+</script>
+</body>
+</html>

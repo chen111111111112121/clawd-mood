@@ -107,6 +107,44 @@ QPushButton#Primary:disabled {{ background: #EDE2D2; color: {FAINT}; }}
 #Toast[kind="ok"] {{ background: {OKBG}; color: #2E7D55; border: 1px solid #CDE9D8; }}
 #Toast[kind="bad"] {{ background: {BADBG}; color: #9C3A2C; border: 1px solid #EFC9C0; }}
 #Note {{ font-size: 12px; color: {MUTED}; }}
+
+/* —— 固件升级页 —— */
+#VTile {{ background: {SHELL}; border: 1px solid {LINE2}; border-radius: 13px; }}
+#VKey {{ font-size: 11px; font-weight: 700; letter-spacing: 1px; color: {FAINT}; }}
+#VVal {{ font-size: 23px; font-weight: 800; color: {INK}; }}
+#VVal[accent="true"] {{ color: {CORAL_DEEP}; }}
+#VMeta {{ font-size: 11px; color: {MUTED}; }}
+#VArrow {{ font-size: 20px; color: {FAINT}; }}
+#PortLabel {{ font-size: 12px; font-weight: 700; color: {MUTED}; }}
+QComboBox#Port {{
+    background: {SHELL}; border: 1px solid {LINE}; border-radius: 9px;
+    padding: 7px 11px; font-size: 13px; color: {INK};
+}}
+QComboBox#Port:focus {{ border: 1px solid {CORAL}; }}
+QComboBox#Port::drop-down {{ border: none; width: 22px; }}
+QPushButton#Mini {{
+    background: {CORAL_SOFT}; border: 1px solid {LINE}; border-radius: 9px;
+    padding: 7px 12px; font-size: 12px; font-weight: 700; color: {CORAL_DEEP};
+}}
+QPushButton#Mini:hover {{ background: #F7E2CE; }}
+#Hint {{ font-size: 12px; color: {FAINT}; }}
+QProgressBar#Prog {{
+    background: #F1E4D2; border: 1px solid {LINE2}; border-radius: 7px;
+    height: 12px; text-align: center; color: transparent;
+}}
+QProgressBar#Prog::chunk {{
+    border-radius: 6px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E8915F, stop:1 {CORAL_DEEP});
+}}
+#ProgMeta {{ font-size: 11px; font-weight: 600; color: {MUTED}; }}
+QTextEdit#Log {{
+    background: #2C231C; color: #E9D9C6; border: none; border-radius: 11px;
+    padding: 8px 10px; font-family: "Cascadia Code", Consolas, monospace; font-size: 11px;
+}}
+#Banner {{ font-size: 13px; font-weight: 600; border-radius: 11px; padding: 10px 14px; }}
+#Banner[kind="ok"] {{ background: {OKBG}; color: #2E7D55; }}
+#Banner[kind="bad"] {{ background: {BADBG}; color: #9C3A2C; }}
+#Banner[kind="warn"] {{ background: #F8EED6; color: #8A5E16; }}
 """
 
 

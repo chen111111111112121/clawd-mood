@@ -38,15 +38,22 @@ def resolve_device_target(directory: str | None = None) -> str:
     return _resolve_cached_ip(directory) or "clawd.local"
 
 
+# 直连局域网设备:显式禁用代理。否则系统代理(如 Clash)会劫持对设备 LAN IP 的请求,
+# 表现为「无法连接设备」。hook 走原生 http 不过代理,这里 urllib 须同样绕开。
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 def _http_get(url: str, timeout: float = 1.5) -> str:
-    with urllib.request.urlopen(url, timeout=timeout) as resp:
+    with _OPENER.open(url, timeout=timeout) as resp:
         return resp.read().decode("utf-8", "replace")
 
 
 def device_test() -> dict:
     target = resolve_device_target()
     try:
-        _http_get(f"http://{target}/state")
+        # 探活打根路径(配网页):两版固件都返回 200。设备无 /state(随 Web 手动控制一并移除),
+        # 旧探针打 /state 会 404 → urllib 抛 HTTPError → 永远判为不可达。
+        _http_get(f"http://{target}/")
         return {"ok": True, "target": target}
     except Exception:
         return {"ok": False, "target": target}

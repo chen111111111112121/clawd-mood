@@ -36,6 +36,15 @@ def test_device_test_ok(monkeypatch):
     assert r == {"ok": True, "target": "1.2.3.4"}
 
 
+def test_device_test_probes_root_not_state(monkeypatch):
+    # 探活必须打根路径 /(设备无 /state,打 /state 会 404 → 永远判不可达)
+    seen = {}
+    monkeypatch.setattr(device, "_http_get", lambda url, timeout=1.5: seen.setdefault("url", url) or "")
+    monkeypatch.setattr(device, "resolve_device_target", lambda *a, **k: "1.2.3.4")
+    device.device_test()
+    assert seen["url"] == "http://1.2.3.4/"
+
+
 def test_device_test_fail(monkeypatch):
     def boom(url, timeout=1.5):
         raise OSError("unreachable")

@@ -11,6 +11,7 @@ _STROKE = {
     "presence": '<circle cx="12" cy="8" r="3.4"/><path d="M5.5 19c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/>',
     "bind": '<path d="M7 8 3 12l4 4M17 8l4 4-4 4M14 4l-4 16"/>',
     "settings": '<circle cx="12" cy="12" r="3"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2M5.6 5.6l1.4 1.4m10 10 1.4 1.4m0-13.2-1.4 1.4m-10 10-1.4 1.4"/>',
+    "firmware": '<path d="M12 15V4M8 8l4-4 4 4"/><rect x="4" y="16" width="16" height="5" rx="1.5"/>',
     # presence 状态
     "auto": '<path d="M13 2 4.5 13.5H11l-1 8.5L19.5 10H13z"/>',
     "meeting": '<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M2 21h20"/>',
