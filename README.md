@@ -154,21 +154,22 @@ GET /status?s=working&act=read|edit|run|net|agent|work&info=<短文本>
 
 ---
 
-## 多 AI 工具绑定（PC 控制台）
+## 多 AI 工具绑定（桌面上位机）
 
-同时开多款 AI 编程工具（Cursor、Claude Code…）时，设备一次只响应你**绑定**的那一款，避免互相抢屏。由一个本地 Node 控制台管理：
+同时开多款 AI 编程工具（Cursor、Claude Code…）时，设备一次只响应你**绑定**的那一款，避免互相抢屏。由**桌面上位机**（`desktop/`，Qt-Python）的「工具绑定」页管理：
 
 ```bash
-node agent/clawd-agent.js          # 默认端口 6624,可用 CLAWD_AGENT_PORT 覆盖
+cd desktop && python -m clawd_mochi
 ```
 
-浏览器打开 **`http://127.0.0.1:6624`**，单选当前要响应的工具即可。原理：
+在「工具绑定」页单选当前要响应的工具即可。原理：
 
 - hook 用 `CLAWD_SOURCE=<id>`（或 `--source=<id>`）声明来源；内置 Cursor / Claude Code 按事件名自动识别。
 - 绑定写入 `~/.clawd-mood/agent.json`，hook 据此自我门控——非当前工具的事件静默忽略，**设备固件无需改动**。
 - 未绑定（`activeTool` 为空）时不门控，行为与单工具时一致（向后兼容）。
 
-新增一款工具：在控制台工具表加一条 + 给其 hook 设 `CLAWD_SOURCE`。详见 [agent/README.md](agent/README.md)。
+> 上位机还含今日陪伴统计、presence 状态牌、Hook 一键安装、串口固件升级。新增一款工具：在 `desktop/clawd_mochi/core/hookinstall.py` 的 `TOOLS` 加一条 + 给其 hook 设 `CLAWD_SOURCE`。详见 [desktop/README.md](desktop/README.md)。
+> （早期的 Node 网页控制台 `agent/` 已退役删除，功能并入上位机。）
 
 ---
 
@@ -205,10 +206,9 @@ clawd-mood/
 │   ├── device.json.example      # 设备 IP 模板（复制为 device.json,本地用）
 │   ├── README.md                # Hook 详细说明
 │   └── 状态测试指令.md          # 全状态测试命令
-├── agent/
-│   ├── clawd-agent.js           # PC 控制台：绑定当前响应哪款 AI 工具
-│   ├── panel.html               # 控制台网页
-│   └── README.md                # 控制台说明
+├── desktop/                     # 桌面上位机（Qt-Python，PC 侧中枢）
+│   ├── clawd_mochi/             #   core/(纯逻辑) + ui/(五页) + firmware/(随包固件)
+│   └── README.md                #   含运行/固件升级/打包说明
 ├── web/
 │   ├── idle-gallery.html        # 空闲表情画廊（rig 实时预览全部 idle 表情）
 │   ├── mockups/                 # 睡眠/唤醒动画的可交互预览（设计真值）

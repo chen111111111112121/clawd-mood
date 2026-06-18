@@ -152,21 +152,22 @@ GET /status?s=working&act=read|edit|run|net|agent|work&info=<short text>
 
 ---
 
-## Multi-AI-tool binding (PC console)
+## Multi-AI-tool binding (desktop app)
 
-When several AI coding tools (Cursor, Claude Code…) are open at once, the device responds to only the one you **bind**, avoiding screen-fighting. Managed by a local Node console:
+When several AI coding tools (Cursor, Claude Code…) are open at once, the device responds to only the one you **bind**, avoiding screen-fighting. Managed by the **desktop app** (`desktop/`, Qt-Python) "Tool binding" page:
 
 ```bash
-node agent/clawd-agent.js          # default port 6624, override with CLAWD_AGENT_PORT
+cd desktop && python -m clawd_mochi
 ```
 
-Open **`http://127.0.0.1:6624`** and pick the tool to respond to. How it works:
+Pick the tool to respond to on the "Tool binding" page. How it works:
 
 - The hook declares its source via `CLAWD_SOURCE=<id>` (or `--source=<id>`); built-in Cursor / Claude Code are auto-detected by event name.
 - The binding is written to `~/.clawd-mood/agent.json`; the hook self-gates on it — events from non-active tools are silently ignored, **no firmware change needed**.
 - When unbound (`activeTool` empty), gating is off and behavior matches single-tool use (backward compatible).
 
-To add a tool: add a row in the console's tool table + set `CLAWD_SOURCE` for its hook. See [agent/README.md](agent/README.md).
+> The desktop app also covers today-stats, presence cards, one-click hook install, and serial firmware upgrade. To add a tool: add a row to `TOOLS` in `desktop/clawd_mochi/core/hookinstall.py` + set `CLAWD_SOURCE` for its hook. See [desktop/README.md](desktop/README.md).
+> (The earlier Node web console `agent/` is retired and removed; its features moved into the desktop app.)
 
 ---
 
@@ -203,10 +204,9 @@ clawd-mood/
 │   ├── device.json.example      # device IP template (copy to device.json, local)
 │   ├── README.md                # Hook details
 │   └── 状态测试指令.md          # full state test commands (Chinese)
-├── agent/
-│   ├── clawd-agent.js           # PC console: bind which AI tool the device responds to
-│   ├── panel.html               # console web page
-│   └── README.md                # console docs
+├── desktop/                     # desktop app (Qt-Python, PC-side hub)
+│   ├── clawd_mochi/             #   core/(pure logic) + ui/(five pages) + firmware/(bundled image)
+│   └── README.md                #   run / firmware-upgrade / packaging docs
 ├── web/
 │   ├── idle-gallery.html        # idle-expression gallery (live rig preview of all idle expressions)
 │   ├── mockups/                 # interactive previews of the sleep/wake animations (design source-of-truth)

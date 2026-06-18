@@ -18,17 +18,17 @@
 | `StopFailure` | `idle` | 失败收尾回 idle |
 | `SessionEnd` | `offline` | Normal Eyes + 关闭背光 |
 
-## 多 AI 工具绑定（PC 控制台）
+## 多 AI 工具绑定（桌面上位机）
 
-设备一次只响应一款被绑定的 AI 工具。绑定由 PC 控制台（`agent/`）写入 `~/.clawd-mood/agent.json` 的 `activeTool`，hook 据此自我门控：
+设备一次只响应一款被绑定的 AI 工具。绑定由**桌面上位机**（`desktop/`）的「工具绑定」页写入 `~/.clawd-mood/agent.json` 的 `activeTool`，hook 据此自我门控：
 
 - hook 用 `CLAWD_SOURCE=<id>`（或 `--source=<id>`）声明自身来源；未声明时按事件名大小写推断（PascalCase=cc / camelCase=cursor）。
 - 若 `activeTool` 已设且 ≠ 本次来源 → hook 静默退出，不推设备。
 - `activeTool` 为空/无配置 → 不门控（与旧版单工具行为一致）。
 
-启动控制台：`node agent/clawd-agent.js`，浏览器开 `http://127.0.0.1:6624` 单选当前工具。
+启动上位机：`cd desktop && python -m clawd_mochi`，在「工具绑定」页单选当前工具。（早期 Node 网页控制台 `agent/` 已退役删除。）
 
-hook 在门控通过后，会把事件以 `{ts,tool,event}` 追加到 `~/.clawd-mood/events-YYYY-MM-DD.jsonl`（按天、非阻塞、写失败静默），供 PC 控制台「今日陪伴」页统计。修改仓库内 `clawd-hook.js` 后需重跑 `install-global.ps1` 同步全局副本。
+hook 在门控通过后，会把事件以 `{ts,tool,event}` 追加到 `~/.clawd-mood/events-YYYY-MM-DD.jsonl`（按天、非阻塞、写失败静默），供上位机「今日陪伴」页统计。修改仓库内 `clawd-hook.js` 后需重跑 `install-global.ps1` 同步全局副本。
 
 ## 工具语义（act/info）
 

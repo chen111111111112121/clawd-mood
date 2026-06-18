@@ -102,6 +102,17 @@ function renderMeeting(g,ms){
   g.fillStyle='#2a3140';g.beginPath();
   g.moveTo(sx-2,sy+sh+3);g.lineTo(sx+sw+2,sy+sh+3);g.lineTo(sx+sw+15,sy+sh+17);g.lineTo(sx-15,sy+sh+17);g.closePath();g.fill();
   g.fillStyle='#3a4150';g.fillRect(120-15,sy+sh+8,30,3);         // 触控板
+
+  // ── 聊天气泡（顶部居中，尾巴朝下指向会议）+ 打字三点跳动 ──
+  const bx=84, by=12, bw=72, bh=34, br=10;
+  g.fillStyle=WHITE; roundRect(g,bx,by,bw,bh,br);                // 气泡白底
+  g.beginPath();g.moveTo(114,by+bh-1);g.lineTo(126,by+bh-1);g.lineTo(120,by+bh+10);g.closePath();g.fill(); // 尾巴
+  const dcy=by+bh/2;                                             // 三点：依次跳动（打字指示）
+  for(let i=0;i<3;i++){
+    const up=Math.max(0,Math.sin(ms/180 - i*0.7))*5;
+    g.fillStyle='#264563';
+    g.beginPath();g.arc(104+i*16, dcy-up, 4, 0,7);g.fill();
+  }
 }
 
 // ───────────────────────── 上厕所中 ─────────────────────────
@@ -235,7 +246,7 @@ function renderRest(g,ms){
 }
 
 const STATES=[
-  {name:'开会中',  cap:'认真低头盯笔记本，屏上视频会议宫格 + 发言者绿框轮换', fn:renderMeeting},
+  {name:'开会中',  cap:'认真低头盯笔记本，屏上视频会议宫格 + 发言者绿框轮换，顶部聊天气泡打字三点跳动', fn:renderMeeting},
   {name:'上厕所中',cap:'如释重负的笑眯眼 + WC 门牌 + 悠闲口哨', fn:renderToilet},
   {name:'实验室中',cap:'眯眼低头盯板，烙铁尖朝下焊 PCB 绿板，冒烟 + 焊点偶迸火花（内部 id=solder）', fn:renderSolder},
   {name:'休息中',  cap:'正常睁眼随拍点头听歌 + 两侧飘音符 + 喝咖啡冒汽（不带睡意）', fn:renderRest},
