@@ -5,7 +5,7 @@ from PySide6.QtGui import QIcon, QAction
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 
 from clawd_mochi.ui.main_window import MainWindow
-from clawd_mochi.ui import theme, icons
+from clawd_mochi.ui import theme
 
 
 def _logo_icon() -> QIcon:
