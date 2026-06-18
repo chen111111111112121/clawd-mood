@@ -155,9 +155,9 @@ if (-not $DeviceIP) {
         $DeviceIP = Read-Host $prompt
         if (-not $DeviceIP) { $DeviceIP = $existing }
     } else {
-        # 自动发现:试 clawd.local /state
+        # 自动发现:试 clawd.local 根路径(配网页);设备无 /state(已随 Web 手动控制移除)
         try {
-            $probe = Invoke-WebRequest -Uri "http://clawd.local/state" -UseBasicParsing -TimeoutSec 3
+            $probe = Invoke-WebRequest -Uri "http://clawd.local/" -UseBasicParsing -TimeoutSec 3
             if ($probe.StatusCode -eq 200) {
                 Write-Host "Auto-discovered device at clawd.local" -ForegroundColor Green
                 $DeviceIP = "clawd.local"
@@ -225,7 +225,7 @@ if (-not $SkipClaude) {
 
 Write-Host "[5/5] Testing device..." -ForegroundColor Gray
 try {
-    $uri = "http://$DeviceIP/state"
+    $uri = "http://$DeviceIP/"
     $r = Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 3
     Write-Host "      Device OK  $($r.Content)" -ForegroundColor Green
 } catch {

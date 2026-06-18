@@ -76,3 +76,23 @@ test('门控命中后写 agent-state.json lastSeen', () => {
   const st = JSON.parse(fs.readFileSync(path.join(dir, 'agent-state.json'), 'utf8'));
   assert.ok(st.lastSeen && typeof st.lastSeen.cc === 'number');
 });
+
+// ── 装机布局:不带 CLAWD_CONFIG_DIR 时,hook 按自身位置(<cfg>/hook/)定位配置目录 ──
+// 复现宿主 AI 工具 spawn hook 的真实环境:它不会传 CLAWD_CONFIG_DIR,
+// hook 须靠 <cfg>/hook/clawd-hook.js 的上级目录读到面板写的 agent.json,否则门控失效。
+test('装机布局: 无 CLAWD_CONFIG_DIR 时按 hook 位置读 agent.json 门控', () => {
+  const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'clawd-install-'));
+  const hookDir = path.join(cfg, 'hook');
+  fs.mkdirSync(hookDir, { recursive: true });
+  fs.copyFileSync(HOOK, path.join(hookDir, 'clawd-hook.js'));               // 模拟安装复制
+  fs.writeFileSync(path.join(cfg, 'agent.json'), JSON.stringify({ activeTool: 'cc' }));
+  // 显式清掉 CLAWD_CONFIG_DIR,运行 <cfg>/hook/ 下的副本
+  const env = { ...process.env, CLAWD_DRY: '1' };
+  delete env.CLAWD_CONFIG_DIR;
+  let out = '';
+  try {
+    out = execFileSync('node', [path.join(hookDir, 'clawd-hook.js'), '--source=cursor', 'preToolUse'],
+                       { env, encoding: 'utf8', input: '' });
+  } catch (e) { out = (e.stdout || '').toString(); }
+  assert.ok(!out.includes('/status'), 'cursor 事件应被 activeTool=cc 门控(按 hook 位置读到了 agent.json)');
+});

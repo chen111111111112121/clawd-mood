@@ -128,8 +128,15 @@ function buildStatusUrl(ip, state, semantics) {
 }
 
 // ── 多 AI 工具绑定:门控 ───────────────────────────────────────
+// 配置目录(放 agent.json / agent-state.json / 按天事件日志),须与面板/agent 写处一致。
+// 优先级:CLAWD_CONFIG_DIR 显式覆盖 > hook 自身所在位置推断 > ~/.clawd-mood 兜底。
+// 关键:安装后 hook 位于 <config_dir>/hook/clawd-hook.js,宿主 AI 工具(Claude Code/Cursor)
+// spawn hook 时不会带 CLAWD_CONFIG_DIR——只有靠脚本自身位置(上级目录=配置目录)定位,
+// 才能读到面板写的绑定配置;否则永远回退到 ~/.clawd-mood,隔离配置下门控/今日陪伴全部失效。
 function configDir() {
-  return process.env.CLAWD_CONFIG_DIR || path.join(os.homedir(), '.clawd-mood');
+  if (process.env.CLAWD_CONFIG_DIR) return process.env.CLAWD_CONFIG_DIR;
+  if (path.basename(__dirname) === 'hook') return path.dirname(__dirname);
+  return path.join(os.homedir(), '.clawd-mood');
 }
 
 // 确定本次 hook 来自哪款 AI 工具:CLAWD_SOURCE 环境变量 > --source= argv > 按事件名大小写推断
