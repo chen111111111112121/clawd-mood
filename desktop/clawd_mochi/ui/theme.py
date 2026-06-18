@@ -31,6 +31,10 @@ QSS = f"""
     background: qlineargradient(x1:0, y1:0, x2:0.6, y2:1, stop:0 {BG1}, stop:1 {BG2});
 }}
 
+/* —— 标题栏 —— */
+#TitleBar {{ background: {SIDE}; border-bottom: 1px solid {LINE}; }}
+QToolButton#WinBtn {{ border: none; background: transparent; }}
+
 /* —— 侧栏 —— */
 #Side {{ background: {SIDE}; border-right: 1px solid {LINE}; }}
 #NavLabel {{ color: {FAINT}; font-size: 10px; font-weight: 700; letter-spacing: 2px; }}
