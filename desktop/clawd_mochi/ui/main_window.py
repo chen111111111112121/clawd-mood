@@ -12,6 +12,8 @@ from clawd_mochi.ui.bind_page import BindPage
 from clawd_mochi.ui.presence_page import PresencePage
 from clawd_mochi.ui.firmware_page import FirmwarePage
 from clawd_mochi.ui.settings_page import SettingsPage
+from clawd_mochi.ui.titlebar import TitleBar
+from clawd_mochi.ui.frameless_win import install_frameless
 
 # (导航文本, 页属性名, 图标名)
 _NAV = [
@@ -28,14 +30,21 @@ class MainWindow(QWidget):
         super().__init__()
         self.setObjectName("Root")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setWindowTitle("Mood")
+        self.setWindowTitle("mood")
         self.resize(940, 600)
+        self.setMinimumSize(900, 560)
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        root.addWidget(self._build_side())
+        self._title_bar = TitleBar(self)
+        outer.addWidget(self._title_bar)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+        body.addWidget(self._build_side())
         self._pages = QStackedWidget()
         self.today = TodayPage()
         self.presence = PresencePage()
@@ -44,7 +53,10 @@ class MainWindow(QWidget):
         self.settings = SettingsPage()
         for w in (self.today, self.presence, self.bind, self.firmware, self.settings):
             self._pages.addWidget(w)
-        root.addWidget(self._pages, 1)
+        body.addWidget(self._pages, 1)
+        outer.addLayout(body, 1)
+
+        install_frameless(self, self._title_bar)
 
         self._switch(0)
         self.test_device()
